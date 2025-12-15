@@ -1,0 +1,39 @@
+openapi: 3.0.0
+info:
+  title: AI Check Back Up
+  version: 1.0.0
+servers:
+  - url: https://api.infiniteposts.com
+paths:
+  /gigacheck:
+    post:
+      summary: AI Check Back Up endpoint
+      operationId: gigacheck
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: bbabhj34hq98585r0ls8
+        service_account_id: ajet4v3e9u1968sflqd4
+        timeout: 300s
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+  /external-test:
+    get:
+      summary: External test endpoint
+      operationId: external-test
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: bbabhj34hq98585r0ls8
+        service_account_id: ajet4v3e9u1968sflqd4
+        timeout: 300s
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object

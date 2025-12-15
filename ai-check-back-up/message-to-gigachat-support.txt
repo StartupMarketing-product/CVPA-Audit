@@ -1,0 +1,46 @@
+Здравствуйте!
+
+Проблема: запрос к `/chat/completions` обрывается через 60 секунд с ошибкой `socket hang up`, хотя в Postman тот же запрос выполняется за ~2 секунды.
+
+Информация для диагностики:
+
+1. Client_id: 019a11f3-2d79-70f1-9871-fb3891e9be2c
+
+2. x-request-id: e89a1fa3-b94c-4074-a2f2-e142be095d32
+
+3. Дата и время запроса: 2025-11-17 14:42:40 MSK (московское время)
+
+4. Текст запроса:
+   - URL: https://gigachat.devices.sberbank.ru/api/v1/chat/completions
+   - Method: POST
+   - Headers:
+     * Authorization: Bearer [токен получен успешно]
+     * Content-Type: application/json
+     * Accept: application/json
+     * X-Request-ID: e89a1fa3-b94c-4074-a2f2-e142be095d32
+     * X-Session-ID: a98b2c4d-119a-4456-bd00-feb11a57ceb0
+     * X-Client-ID: 019a11f3-2d79-70f1-9871-fb3891e9be2c
+   - Body:
+     ```json
+     {
+       "model": "Gigachat-2",
+       "stream": false,
+       "update_interval": 0,
+       "messages": [{
+         "role": "user",
+         "content": "Найди 2 URL по \"Тест\". JSON: {\"urls\": [\"url1\", \"url2\"], \"isValid\": \"да\"}"
+       }],
+       "temperature": 0.0,
+       "max_tokens": 100
+     }
+     ```
+
+Дополнительная информация:
+- Ошибка происходит ровно через 60 секунд: Duration: 61464.432 ms
+- В Postman тот же запрос выполняется за ~2 секунды
+- OAuth токен получается успешно
+- Российские CA сертификаты установлены корректно
+- Используется node-fetch v3.3.2 с https.Agent, настроенным для работы с российскими сертификатами
+
+Буду благодарен за помощь в диагностике проблемы!
+
