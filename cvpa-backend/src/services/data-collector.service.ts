@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { pool } from '../config/database';
-import { RawData, Review } from '../types';
+import { Review } from '../types';
 
 const ENABLE_REAL_APIS = process.env.ENABLE_REAL_APIS === 'true';
 const USE_PUPPETEER = process.env.USE_PUPPETEER !== 'false'; // Default to true
@@ -29,7 +29,6 @@ export class DataCollectorService {
       normalizedUrl = normalizedUrl.replace(/\/+$/, '');
 
       let text = '';
-      let html = '';
 
       // Try Puppeteer first for Cloudflare bypass
       if (USE_PUPPETEER && puppeteer) {
@@ -57,8 +56,6 @@ export class DataCollectorService {
 
           // Wait a bit more for dynamic content
           await page.waitForTimeout(3000);
-
-          html = await page.content();
           text = await page.evaluate(() => {
             // Remove script, style, and other non-content elements
             const elementsToRemove = document.querySelectorAll('script, style, nav, footer, header, aside, .ad, .advertisement, .sidebar');

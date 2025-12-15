@@ -63,7 +63,7 @@ export class AuthService {
     const secret = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
     const expiresIn = process.env.JWT_EXPIRES_IN || '15m';
 
-    return jwt.sign(
+    return (jwt.sign as any)(
       { id: user.id, email: user.email, role: user.role },
       secret,
       { expiresIn }
@@ -74,7 +74,7 @@ export class AuthService {
     const secret = process.env.JWT_REFRESH_SECRET || 'your-super-secret-refresh-key-change-in-production';
     const expiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
-    return jwt.sign(
+    return (jwt.sign as any)(
       { id: user.id, email: user.email },
       secret,
       { expiresIn }

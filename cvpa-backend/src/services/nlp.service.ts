@@ -30,7 +30,6 @@ export class NLPService {
 
   extractJobs(text: string): Array<{ text: string; type: string; confidence: number }> {
     const jobs: Array<{ text: string; type: string; confidence: number }> = [];
-    const tokens = tokenizer.tokenize(text.toLowerCase()) || [];
     const textLower = text.toLowerCase();
 
     // Check for functional jobs
