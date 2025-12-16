@@ -21,7 +21,7 @@ import {
 } from '@mui/material';
 import { ArrowBack } from '@mui/icons-material';
 import { companiesApi, Company } from '../api/companies';
-import { format, subDays, subMonths } from 'date-fns';
+import { format, subDays } from 'date-fns';
 
 const steps = ['Company Info', 'Data Sources', 'Time Period', 'Review'];
 

@@ -115,8 +115,7 @@ export default function AuditDetailPage() {
 
   const renderDimensionSection = (
     title: string,
-    dimension: DimensionData,
-    dimensionType: string
+    dimension: DimensionData
   ) => {
     return (
       <Card sx={{ mb: 3 }}>
@@ -344,20 +343,17 @@ export default function AuditDetailPage() {
         {/* Dimension Details */}
         {renderDimensionSection(
           'Jobs Fulfillment',
-          auditData.dimensions.jobs_fulfillment,
-          'jobs'
+          auditData.dimensions.jobs_fulfillment
         )}
 
         {renderDimensionSection(
           'Pain Relief',
-          auditData.dimensions.pain_relief,
-          'pains'
+          auditData.dimensions.pain_relief
         )}
 
         {renderDimensionSection(
           'Gain Achievement',
-          auditData.dimensions.gain_achievement,
-          'gains'
+          auditData.dimensions.gain_achievement
         )}
       </Container>
     </>

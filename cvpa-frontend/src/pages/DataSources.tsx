@@ -21,7 +21,7 @@ import {
   Paper,
   Alert,
 } from '@mui/material';
-import { ArrowBack, CheckCircle, Error, Info } from '@mui/icons-material';
+import { ArrowBack, CheckCircle, Error } from '@mui/icons-material';
 import { companiesApi } from '../api/companies';
 
 interface ReviewSource {

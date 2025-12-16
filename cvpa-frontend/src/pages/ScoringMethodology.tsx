@@ -7,13 +7,11 @@ import {
   AppBar,
   Toolbar,
   IconButton,
-  Grid,
   Paper,
   Divider,
   List,
   ListItem,
   ListItemText,
-  Chip,
 } from '@mui/material';
 import { ArrowBack, Calculate, TrendingUp, Psychology, EmojiEmotions } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
