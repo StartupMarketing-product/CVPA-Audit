@@ -33,7 +33,7 @@ class ScoringService {
         return result.rows[0];
     }
     async calculateJobsScore(promises, feedback) {
-        const promisedJobs = promises.filter(p => p.category === 'job');
+        const promisedJobs = promises.filter((p) => p.category === 'job');
         if (promisedJobs.length === 0) {
             return 50; // Neutral score if no jobs promised
         }
@@ -62,7 +62,7 @@ class ScoringService {
         return totalWeight > 0 ? totalScore / totalWeight : 0;
     }
     async calculatePainsScore(promises, feedback) {
-        const promisedPainRelief = promises.filter(p => p.category === 'pain');
+        const promisedPainRelief = promises.filter((p) => p.category === 'pain');
         if (promisedPainRelief.length === 0) {
             return 50; // Neutral score
         }
@@ -92,7 +92,7 @@ class ScoringService {
         return totalWeight > 0 ? totalScore / totalWeight : 0;
     }
     async calculateGainsScore(promises, feedback) {
-        const promisedGains = promises.filter(p => p.category === 'gain');
+        const promisedGains = promises.filter((p) => p.category === 'gain');
         if (promisedGains.length === 0) {
             return 50; // Neutral score
         }
@@ -184,9 +184,9 @@ class ScoringService {
         }
         // Also identify specific gaps from extracted promises
         // Identify gaps in jobs
-        const promisedJobs = promises.filter(p => p.category === 'job');
+        const promisedJobs = promises.filter((p) => p.category === 'job');
         for (const job of promisedJobs) {
-            const matchingFeedback = feedback.filter(f => {
+            const matchingFeedback = feedback.filter((f) => {
                 const jobs = f.jobs_mentioned || [];
                 return jobs.some((j) => this.textSimilarity(job.extracted_text, j.text) > 0.5);
             });
@@ -207,9 +207,9 @@ class ScoringService {
             }
         }
         // Identify gaps in pains
-        const promisedPainRelief = promises.filter(p => p.category === 'pain');
+        const promisedPainRelief = promises.filter((p) => p.category === 'pain');
         for (const pain of promisedPainRelief) {
-            const stillExperienced = feedback.filter(f => {
+            const stillExperienced = feedback.filter((f) => {
                 const pains = f.pains_mentioned || [];
                 return pains.some((p) => this.textSimilarity(pain.extracted_text, p.text) > 0.5);
             });

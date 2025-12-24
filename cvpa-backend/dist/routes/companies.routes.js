@@ -106,18 +106,64 @@ router.post('/:id/audits', auth_1.authenticateToken, async (req, res) => {
                 if (sources.includes('uzum')) {
                     await dataCollector.collectUzumReviews(companyId);
                 }
-                // Process raw data and extract value propositions
-                await dataCollector.processRawData(companyId);
-                const rawDataResult = await database_1.pool.query('SELECT * FROM raw_data WHERE company_id = $1 AND status = $2', [companyId, 'processed']);
-                for (const rawData of rawDataResult.rows) {
-                    const propositions = nlpService.extractValuePropositions(rawData.content, rawData.source_type, rawData.source_url || '', companyId);
-                    for (const prop of propositions) {
-                        await database_1.pool.query(`INSERT INTO value_propositions 
-               (company_id, source_type, source_url, extracted_text, category, job_type, gain_type, confidence)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [prop.company_id, prop.source_type, prop.source_url, prop.extracted_text,
-                            prop.category, prop.job_type || null, prop.gain_type || null, prop.confidence]);
+                // Collect social media data
+                if (sources.includes('social_media')) {
+                    // Get social media URLs from company metadata or use company website as base
+                    const companyResult = await database_1.pool.query('SELECT website_url, name FROM companies WHERE id = $1', [companyId]);
+                    const company = companyResult.rows[0];
+                    // For MVP, try to find social media links from company website
+                    // In production, these should be stored in company profile
+                    if (company?.website_url) {
+                        // Try common social media patterns
+                        const baseDomain = company.website_url.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+                        const socialUrls = [
+                            `https://www.facebook.com/${baseDomain}`,
+                            `https://www.instagram.com/${baseDomain}`,
+                            `https://twitter.com/${baseDomain}`,
+                            `https://www.linkedin.com/company/${baseDomain}`,
+                        ];
+                        await dataCollector.collectSocialMedia(companyId, socialUrls);
                     }
                 }
+                // Collect media articles
+                if (sources.includes('media')) {
+                    const companyResult = await database_1.pool.query('SELECT name FROM companies WHERE id = $1', [companyId]);
+                    const companyName = companyResult.rows[0]?.name || 'Company';
+                    await dataCollector.collectMediaArticles(companyId, companyName);
+                }
+                // Process raw data and extract value propositions
+                await dataCollector.processRawData(companyId);
+                // Get all raw data with content (including previously failed items with content)
+                const rawDataResult = await database_1.pool.query(`SELECT * FROM raw_data 
+           WHERE company_id = $1 
+           AND status = 'processed'
+           AND content IS NOT NULL 
+           AND content != '' 
+           AND LENGTH(content) > 50`, [companyId]);
+                console.log(`Extracting value propositions from ${rawDataResult.rows.length} processed items`);
+                let totalExtracted = 0;
+                for (const rawData of rawDataResult.rows) {
+                    try {
+                        const propositions = nlpService.extractValuePropositions(rawData.content, rawData.source_type, rawData.source_url || '', companyId);
+                        console.log(`Extracted ${propositions.length} propositions from ${rawData.source_type}: ${rawData.source_url}`);
+                        for (const prop of propositions) {
+                            // Skip if extracted text is too generic or short
+                            if (!prop.extracted_text || prop.extracted_text.length < 15) {
+                                continue;
+                            }
+                            await database_1.pool.query(`INSERT INTO value_propositions 
+                 (company_id, source_type, source_url, extracted_text, category, job_type, gain_type, confidence)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT DO NOTHING`, [prop.company_id, prop.source_type, prop.source_url, prop.extracted_text,
+                                prop.category, prop.job_type || null, prop.gain_type || null, prop.confidence]);
+                            totalExtracted++;
+                        }
+                    }
+                    catch (error) {
+                        console.error(`Error extracting propositions from ${rawData.source_url}:`, error.message);
+                    }
+                }
+                console.log(`Total value propositions extracted: ${totalExtracted}`);
                 // Analyze reviews
                 const reviewsResult = await database_1.pool.query('SELECT * FROM reviews WHERE company_id = $1', [companyId]);
                 for (const review of reviewsResult.rows) {
@@ -172,16 +218,30 @@ router.get('/:id/data-sources', auth_1.authenticateToken, async (req, res) => {
        WHERE company_id = $1 
        GROUP BY source 
        ORDER BY count DESC`, [companyId]);
-        // Get raw data counts by source type
-        const rawDataCounts = await database_1.pool.query(`SELECT 
-        source_type,
+        // Get raw data counts by source type with error details
+        const rawDataCountsResult = await database_1.pool.query(`SELECT 
+        rd.source_type,
         COUNT(*) as count,
-        COUNT(CASE WHEN status = 'processed' THEN 1 END) as processed_count,
-        COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_count
-       FROM raw_data 
-       WHERE company_id = $1 
-       GROUP BY source_type 
+        COUNT(CASE WHEN rd.status = 'processed' THEN 1 END) as processed_count,
+        COUNT(CASE WHEN rd.status = 'failed' THEN 1 END) as failed_count
+       FROM raw_data rd
+       WHERE rd.company_id = $1 
+       GROUP BY rd.source_type 
        ORDER BY count DESC`, [companyId]);
+        // Get sample error for each source type
+        const rawDataCounts = await Promise.all(rawDataCountsResult.rows.map(async (row) => {
+            const errorResult = await database_1.pool.query(`SELECT metadata->>'error' as error 
+           FROM raw_data 
+           WHERE company_id = $1 
+           AND source_type = $2 
+           AND status = 'failed' 
+           AND metadata->>'error' IS NOT NULL
+           LIMIT 1`, [companyId, row.source_type]);
+            return {
+                ...row,
+                sample_error: errorResult.rows[0]?.error || null,
+            };
+        }));
         // Get total statistics
         const totalStats = await database_1.pool.query(`SELECT 
         COUNT(*) as total_reviews,
@@ -199,11 +259,12 @@ router.get('/:id/data-sources', auth_1.authenticateToken, async (req, res) => {
                 earliest_review: row.earliest_review,
                 latest_review: row.latest_review,
             })),
-            raw_data_sources: rawDataCounts.rows.map(row => ({
+            raw_data_sources: rawDataCounts.map(row => ({
                 source_type: row.source_type,
                 count: parseInt(row.count),
                 processed_count: parseInt(row.processed_count || '0'),
                 failed_count: parseInt(row.failed_count || '0'),
+                sample_error: row.sample_error || null,
             })),
             totals: {
                 total_reviews: parseInt(totalStats.rows[0]?.total_reviews || '0'),

@@ -29,7 +29,6 @@ class NLPService {
     }
     extractJobs(text) {
         const jobs = [];
-        const tokens = tokenizer.tokenize(text.toLowerCase()) || [];
         const textLower = text.toLowerCase();
         // Check for functional jobs
         for (const keyword of JOB_KEYWORDS.functional) {
@@ -141,42 +140,100 @@ class NLPService {
     }
     extractValuePropositions(text, sourceType, sourceUrl, companyId) {
         const propositions = [];
-        // Extract jobs from company communications
-        const jobs = this.extractJobs(text);
-        for (const job of jobs) {
-            propositions.push({
-                id: '',
-                company_id: companyId,
-                source_type: sourceType,
-                source_url: sourceUrl,
-                extracted_text: job.text,
-                category: 'job',
-                job_type: job.type,
-                confidence: job.confidence,
-                extracted_at: new Date(),
-            });
-        }
-        // Extract gains (promised benefits)
-        const gains = this.extractGains(text);
-        for (const gain of gains) {
-            propositions.push({
-                id: '',
-                company_id: companyId,
-                source_type: sourceType,
-                source_url: sourceUrl,
-                extracted_text: gain.text,
-                category: 'gain',
-                gain_type: gain.type,
-                confidence: gain.confidence,
-                extracted_at: new Date(),
-            });
-        }
-        // Extract pain relief promises
         const textLower = text.toLowerCase();
-        if (textLower.includes('solve') || textLower.includes('fix') || textLower.includes('eliminate')) {
-            const sentences = text.split(/[.!?]+/);
-            for (const sentence of sentences) {
-                if (sentence.toLowerCase().includes('solve') || sentence.toLowerCase().includes('fix')) {
+        // Split into sentences and phrases
+        const sentences = text.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 10);
+        // Pattern-based extraction for more specific promises
+        const jobPatterns = [
+            // Direct job statements
+            /(?:help|enable|allow|lets?|lets you|you can|enables you to|helps you|assist|support).*?(?:you|users|customers|clients|people)/gi,
+            /(?:accomplish|complete|finish|achieve|get done|make it easy to)/gi,
+            /(?:so you can|so that you|enabling you|to help you)/gi,
+            // Value proposition patterns
+            /(?:we help|we enable|we make it|we allow|we assist)/gi,
+        ];
+        const painReliefPatterns = [
+            // Pain elimination patterns
+            /(?:no more|never again|eliminate|remove|end|stop|get rid of|free from|without)/gi,
+            /(?:solve|fix|address|resolve|tackle|deal with|overcome|avoid)/gi,
+            /(?:don't|won't|no need to|no longer)/gi,
+            // Problem-solving patterns
+            /(?:problem|issue|challenge|pain|difficulty|struggle|frustration).*?(?:solved|fixed|addressed|eliminated|removed|resolved)/gi,
+        ];
+        const gainPatterns = [
+            // Direct benefit statements
+            /(?:save|earn|gain|get|receive|obtain|achieve|improve|increase|reduce|decrease)/gi,
+            /(?:faster|easier|better|more|less|cheaper|affordable|convenient)/gi,
+            // Value statements
+            /(?:you'll|you will|you get|you receive|benefit from|enjoy)/gi,
+            // Feature-benefit patterns
+            /(?:which means|so you|resulting in|leading to|giving you|providing you)/gi,
+        ];
+        // Extract specific jobs (JTBD)
+        for (const sentence of sentences) {
+            const sentenceLower = sentence.toLowerCase();
+            // Check for job patterns
+            for (const pattern of jobPatterns) {
+                if (pattern.test(sentence)) {
+                    // Clean up and extract meaningful promise
+                    let extracted = sentence.trim();
+                    // Remove common prefixes that don't add value
+                    extracted = extracted.replace(/^(we help|we enable|we make it|we allow|we assist|help|enable|allows?|lets? you|you can|enables you to|helps you)/i, '').trim();
+                    extracted = extracted.replace(/^(to|so|and|,)/i, '').trim();
+                    if (extracted.length > 15 && extracted.length < 200) {
+                        // Determine job type
+                        let jobType = 'functional';
+                        if (/feel|confident|happy|satisfied|relieved|proud|secure|comfortable|peace/i.test(extracted)) {
+                            jobType = 'emotional';
+                        }
+                        else if (/perceived|recognized|valued|respected|admired|seen|viewed/i.test(extracted)) {
+                            jobType = 'social';
+                        }
+                        propositions.push({
+                            id: '',
+                            company_id: companyId,
+                            source_type: sourceType,
+                            source_url: sourceUrl,
+                            extracted_text: extracted.charAt(0).toUpperCase() + extracted.slice(1),
+                            category: 'job',
+                            job_type: jobType,
+                            confidence: 0.8,
+                            extracted_at: new Date(),
+                        });
+                        break; // Only extract once per sentence
+                    }
+                }
+            }
+        }
+        // Extract specific pain relief promises
+        for (const sentence of sentences) {
+            const sentenceLower = sentence.toLowerCase();
+            // Check for pain relief patterns
+            for (const pattern of painReliefPatterns) {
+                if (pattern.test(sentence)) {
+                    let extracted = sentence.trim();
+                    // Clean up extraction
+                    extracted = extracted.replace(/^(we|our solution|our product|our service)/i, '').trim();
+                    if (extracted.length > 20 && extracted.length < 200) {
+                        propositions.push({
+                            id: '',
+                            company_id: companyId,
+                            source_type: sourceType,
+                            source_url: sourceUrl,
+                            extracted_text: extracted.charAt(0).toUpperCase() + extracted.slice(1),
+                            category: 'pain',
+                            confidence: 0.8,
+                            extracted_at: new Date(),
+                        });
+                        break;
+                    }
+                }
+            }
+            // Also check for explicit pain mentions with solutions
+            const painSolutions = sentenceLower.match(/(?:no more|eliminate|solve|fix|address|remove|end|stop)\s+([^.?!]+)/i);
+            if (painSolutions && painSolutions[1]) {
+                const painText = painSolutions[1].trim();
+                if (painText.length > 10 && painText.length < 150) {
                     propositions.push({
                         id: '',
                         company_id: companyId,
@@ -184,13 +241,98 @@ class NLPService {
                         source_url: sourceUrl,
                         extracted_text: sentence.trim(),
                         category: 'pain',
-                        confidence: 0.7,
+                        confidence: 0.85,
                         extracted_at: new Date(),
                     });
                 }
             }
         }
-        return propositions;
+        // Extract specific gains (benefits)
+        for (const sentence of sentences) {
+            const sentenceLower = sentence.toLowerCase();
+            // Check for gain patterns
+            for (const pattern of gainPatterns) {
+                if (pattern.test(sentence)) {
+                    let extracted = sentence.trim();
+                    // Extract the benefit part
+                    if (/which means|so you|resulting in|leading to|giving you|providing you/i.test(extracted)) {
+                        const parts = extracted.split(/(?:which means|so you|resulting in|leading to|giving you|providing you)/i);
+                        if (parts.length > 1) {
+                            extracted = parts[1].trim();
+                        }
+                    }
+                    if (extracted.length > 15 && extracted.length < 200) {
+                        // Determine gain type
+                        let gainType = 'expected';
+                        if (/must|need|essential|required|crucial|critical/i.test(extracted)) {
+                            gainType = 'required';
+                        }
+                        else if (/surprised|amazed|delighted|love|excellent|perfect|incredible|amazing|wow/i.test(extracted)) {
+                            gainType = 'unexpected';
+                        }
+                        else if (/want|would like|prefer|wish|desire/i.test(extracted)) {
+                            gainType = 'desired';
+                        }
+                        propositions.push({
+                            id: '',
+                            company_id: companyId,
+                            source_type: sourceType,
+                            source_url: sourceUrl,
+                            extracted_text: extracted.charAt(0).toUpperCase() + extracted.slice(1),
+                            category: 'gain',
+                            gain_type: gainType,
+                            confidence: 0.8,
+                            extracted_at: new Date(),
+                        });
+                        break;
+                    }
+                }
+            }
+        }
+        // Also use original keyword-based extraction as fallback for more coverage
+        const jobs = this.extractJobs(text);
+        for (const job of jobs) {
+            // Only add if not already captured by pattern matching
+            const alreadyExists = propositions.some(p => p.category === 'job' &&
+                (p.extracted_text.toLowerCase().includes(job.text.toLowerCase()) ||
+                    job.text.toLowerCase().includes(p.extracted_text.toLowerCase())));
+            if (!alreadyExists && job.text.length > 20) {
+                propositions.push({
+                    id: '',
+                    company_id: companyId,
+                    source_type: sourceType,
+                    source_url: sourceUrl,
+                    extracted_text: job.text,
+                    category: 'job',
+                    job_type: job.type,
+                    confidence: Math.max(0.6, job.confidence),
+                    extracted_at: new Date(),
+                });
+            }
+        }
+        // Deduplicate similar propositions
+        const uniquePropositions = this.deduplicatePropositions(propositions);
+        return uniquePropositions.slice(0, 50); // Limit to top 50 most confident
+    }
+    deduplicatePropositions(propositions) {
+        const unique = [];
+        for (const prop of propositions) {
+            const isDuplicate = unique.some(existing => {
+                if (existing.category !== prop.category)
+                    return false;
+                // Check if texts are very similar (simple similarity check)
+                const existingWords = existing.extracted_text.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+                const propWords = prop.extracted_text.toLowerCase().split(/\W+/).filter(w => w.length > 3);
+                const commonWords = existingWords.filter(w => propWords.includes(w));
+                const similarity = commonWords.length / Math.max(existingWords.length, propWords.length, 1);
+                return similarity > 0.7; // 70% word overlap = duplicate
+            });
+            if (!isDuplicate) {
+                unique.push(prop);
+            }
+        }
+        // Sort by confidence and return
+        return unique.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
     }
 }
 exports.NLPService = NLPService;

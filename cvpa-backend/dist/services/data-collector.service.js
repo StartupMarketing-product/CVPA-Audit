@@ -41,26 +41,130 @@ const axios_1 = __importDefault(require("axios"));
 const cheerio = __importStar(require("cheerio"));
 const database_1 = require("../config/database");
 const ENABLE_REAL_APIS = process.env.ENABLE_REAL_APIS === 'true';
+const USE_PUPPETEER = process.env.USE_PUPPETEER !== 'false'; // Default to true
+// Dynamically import puppeteer to avoid errors if not installed
+let puppeteer = null;
+if (USE_PUPPETEER) {
+    try {
+        puppeteer = require('puppeteer');
+    }
+    catch (error) {
+        console.warn('Puppeteer not available, falling back to axios-only scraping');
+    }
+}
 class DataCollectorService {
     async scrapeWebsite(url, companyId) {
         try {
-            const response = await axios_1.default.get(url, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                },
-                timeout: 10000,
-            });
-            const $ = cheerio.load(response.data);
-            // Extract main content (simplified - in production, use more sophisticated extraction)
-            const text = $('body').text().replace(/\s+/g, ' ').trim();
+            // Normalize URL - ensure it has a protocol
+            let normalizedUrl = url.trim();
+            if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+                normalizedUrl = `https://${normalizedUrl}`;
+            }
+            // Remove trailing slashes for consistency
+            normalizedUrl = normalizedUrl.replace(/\/+$/, '');
+            let text = '';
+            // Try Puppeteer first for Cloudflare bypass
+            if (USE_PUPPETEER && puppeteer) {
+                try {
+                    console.log(`Attempting to scrape ${normalizedUrl} with Puppeteer...`);
+                    const browser = await puppeteer.launch({
+                        headless: true,
+                        args: [
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--disable-dev-shm-usage',
+                            '--disable-accelerated-2d-canvas',
+                            '--disable-gpu',
+                        ],
+                    });
+                    const page = await browser.newPage();
+                    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+                    // Wait for content to load (especially for Cloudflare-protected sites)
+                    await page.goto(normalizedUrl, {
+                        waitUntil: 'networkidle2',
+                        timeout: 30000
+                    });
+                    // Wait a bit more for dynamic content
+                    await page.waitForTimeout(3000);
+                    text = await page.evaluate(() => {
+                        // Remove script, style, and other non-content elements
+                        const elementsToRemove = document.querySelectorAll('script, style, nav, footer, header, aside, .ad, .advertisement, .sidebar');
+                        elementsToRemove.forEach(el => el.remove());
+                        // Try main content areas first
+                        const mainSelectors = ['main', 'article', '.content', '.main-content', '#content', '#main'];
+                        for (const selector of mainSelectors) {
+                            const content = document.querySelector(selector);
+                            if (content && content.textContent && content.textContent.trim().length > 100) {
+                                return content.textContent;
+                            }
+                        }
+                        // Fallback to body
+                        return document.body.textContent || '';
+                    });
+                    await browser.close();
+                    console.log(`Successfully scraped website with Puppeteer: ${normalizedUrl}`);
+                }
+                catch (puppeteerError) {
+                    console.warn(`Puppeteer scraping failed for ${normalizedUrl}, falling back to axios:`, puppeteerError.message);
+                    // Fall through to axios method
+                }
+            }
+            // Fallback to axios if Puppeteer fails or is disabled
+            if (!text || text.length < 50) {
+                const response = await axios_1.default.get(normalizedUrl, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                    },
+                    timeout: 30000,
+                    maxRedirects: 5,
+                    validateStatus: (status) => status >= 200 && status < 400,
+                });
+                const $ = cheerio.load(response.data);
+                $('script, style, nav, footer, header, aside, .ad, .advertisement, .sidebar').remove();
+                const mainSelectors = ['main', 'article', '.content', '.main-content', '#content', '#main'];
+                for (const selector of mainSelectors) {
+                    const content = $(selector).text();
+                    if (content.trim().length > 100) {
+                        text = content;
+                        break;
+                    }
+                }
+                if (!text || text.trim().length < 100) {
+                    text = $('body').text();
+                }
+            }
+            // Clean up text
+            text = text.replace(/\s+/g, ' ').trim().substring(0, 50000);
+            if (!text || text.length < 50) {
+                throw new Error('Insufficient content extracted from website');
+            }
             // Save to raw_data
             await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status)
-         VALUES ($1, $2, $3, $4, $5)`, [companyId, 'website', url, text, 'pending']);
+         VALUES ($1, $2, $3, $4, $5)`, [companyId, 'website', normalizedUrl, text, 'pending']);
+            console.log(`Successfully scraped website: ${normalizedUrl}`);
         }
         catch (error) {
-            console.error(`Error scraping website ${url}:`, error.message);
+            const errorMessage = error.response
+                ? `HTTP ${error.response.status}: ${error.response.statusText}`
+                : error.code === 'ECONNABORTED'
+                    ? 'Request timeout'
+                    : error.code === 'ENOTFOUND'
+                        ? 'Domain not found'
+                        : error.code === 'ECONNREFUSED'
+                            ? 'Connection refused'
+                            : error.message || 'Unknown error';
+            console.error(`Error scraping website ${url}:`, errorMessage);
             await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6)`, [companyId, 'website', url, '', 'failed', JSON.stringify({ error: error.message })]);
+         VALUES ($1, $2, $3, $4, $5, $6)`, [companyId, 'website', url, '', 'failed', JSON.stringify({
+                    error: errorMessage,
+                    code: error.code,
+                    status: error.response?.status,
+                })]);
         }
     }
     async collectAppStoreReviews(appId, companyId) {
@@ -547,6 +651,154 @@ class DataCollectorService {
          VALUES ($1, $2, $3, $4, $5, $6, $7)`, [companyId, 'uzum', reviewer, template.rating, text, reviewDate, Math.random() > 0.2]);
         }
     }
+    async collectSocialMedia(companyId, socialUrls) {
+        console.log(`Collecting social media data from ${socialUrls.length} URLs for company ${companyId}`);
+        for (const url of socialUrls) {
+            try {
+                // Use Puppeteer for social media scraping as they often require JS execution
+                if (USE_PUPPETEER && puppeteer) {
+                    try {
+                        const browser = await puppeteer.launch({
+                            headless: true,
+                            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                        });
+                        const page = await browser.newPage();
+                        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+                        await page.goto(url, { waitUntil: 'networkidle2', timeout: 20000 });
+                        await page.waitForTimeout(2000);
+                        const text = await page.evaluate(() => {
+                            // Remove non-content elements
+                            document.querySelectorAll('script, style, nav, footer, aside').forEach(el => el.remove());
+                            // Try to get main content
+                            const main = document.querySelector('main, article, [role="main"], .content') || document.body;
+                            return main.textContent || '';
+                        });
+                        await browser.close();
+                        if (text && text.trim().length > 50) {
+                            await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status)
+                 VALUES ($1, $2, $3, $4, $5)`, [companyId, 'social_media', url, text.trim().substring(0, 50000), 'pending']);
+                            console.log(`Successfully collected social media data from ${url}`);
+                        }
+                    }
+                    catch (puppeteerError) {
+                        console.warn(`Puppeteer failed for ${url}, trying axios:`, puppeteerError.message);
+                        // Fall through to axios
+                    }
+                }
+                // Fallback to axios
+                const response = await axios_1.default.get(url, {
+                    headers: { 'User-Agent': 'Mozilla/5.0' },
+                    timeout: 15000,
+                });
+                const $ = cheerio.load(response.data);
+                $('script, style, nav, footer, aside').remove();
+                const text = $('main, article, body').text().replace(/\s+/g, ' ').trim();
+                if (text && text.length > 50) {
+                    await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status)
+             VALUES ($1, $2, $3, $4, $5)`, [companyId, 'social_media', url, text.substring(0, 50000), 'pending']);
+                }
+            }
+            catch (error) {
+                console.error(`Error collecting social media from ${url}:`, error.message);
+                await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6)`, [companyId, 'social_media', url, '', 'failed', JSON.stringify({ error: error.message })]);
+            }
+        }
+    }
+    async collectMediaArticles(companyId, companyName) {
+        console.log(`Collecting media articles for ${companyName}`);
+        try {
+            // Use a search approach to find articles mentioning the company
+            // For MVP, we'll use web search APIs or scrape news aggregators
+            // Note: In production, use APIs like Google News API, NewsAPI, etc.
+            // Example: Search Google News (requires API key in production)
+            const searchQuery = encodeURIComponent(`${companyName} интервью OR interview OR новости OR news`);
+            const searchUrls = [
+                `https://news.google.com/search?q=${searchQuery}&hl=ru&gl=UZ&ceid=UZ:ru`,
+                // Add other news sources as needed
+            ];
+            for (const searchUrl of searchUrls) {
+                try {
+                    if (USE_PUPPETEER && puppeteer) {
+                        const browser = await puppeteer.launch({
+                            headless: true,
+                            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                        });
+                        const page = await browser.newPage();
+                        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+                        await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+                        await page.waitForTimeout(3000);
+                        // Extract article links and titles from search results
+                        const articles = await page.evaluate(() => {
+                            const results = [];
+                            // Google News structure - adjust selectors as needed
+                            const items = document.querySelectorAll('article h3 a, .JtKRv a');
+                            items.forEach((item, index) => {
+                                if (index < 10 && item.href && item.textContent) {
+                                    results.push({
+                                        title: item.textContent.trim(),
+                                        url: item.href,
+                                    });
+                                }
+                            });
+                            return results;
+                        });
+                        await browser.close();
+                        // Scrape each article
+                        for (const article of articles) {
+                            try {
+                                const articleBrowser = await puppeteer.launch({
+                                    headless: true,
+                                    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                                });
+                                const articlePage = await articleBrowser.newPage();
+                                await articlePage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+                                await articlePage.goto(article.url, { waitUntil: 'networkidle2', timeout: 15000 });
+                                await articlePage.waitForTimeout(2000);
+                                const content = await articlePage.evaluate(() => {
+                                    document.querySelectorAll('script, style, nav, footer, aside, .ad').forEach(el => el.remove());
+                                    const main = document.querySelector('article, main, [role="article"], .article-content') || document.body;
+                                    return main.textContent || '';
+                                });
+                                await articleBrowser.close();
+                                if (content && content.trim().length > 100) {
+                                    const fullText = `${article.title}\n\n${content}`.trim();
+                                    await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status, metadata)
+                     VALUES ($1, $2, $3, $4, $5, $6)`, [companyId, 'media', article.url, fullText.substring(0, 50000), 'pending',
+                                        JSON.stringify({ title: article.title })]);
+                                    console.log(`Collected media article: ${article.title}`);
+                                }
+                            }
+                            catch (articleError) {
+                                console.error(`Error scraping article ${article.url}:`, articleError.message);
+                            }
+                        }
+                    }
+                    else {
+                        // Fallback: Use axios (less effective for JS-heavy sites)
+                        const response = await axios_1.default.get(searchUrl, {
+                            headers: { 'User-Agent': 'Mozilla/5.0' },
+                            timeout: 15000,
+                        });
+                        const $ = cheerio.load(response.data);
+                        const text = $('body').text().replace(/\s+/g, ' ').trim();
+                        if (text && text.length > 100) {
+                            await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status)
+                 VALUES ($1, $2, $3, $4, $5)`, [companyId, 'media', searchUrl, text.substring(0, 50000), 'pending']);
+                        }
+                    }
+                }
+                catch (searchError) {
+                    console.error(`Error searching for media articles:`, searchError.message);
+                }
+            }
+        }
+        catch (error) {
+            console.error(`Error collecting media articles:`, error.message);
+            await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`, [companyId, 'media', '', '', 'failed', JSON.stringify({ error: error.message })]);
+        }
+    }
     async collectUzumReviewsReal(companyId) {
         // Uzum platform - check if they have an API
         // If not available, this would require web scraping (check their ToS)
@@ -571,11 +823,23 @@ class DataCollectorService {
         // Save to database
     }
     async processRawData(companyId) {
-        // Get all pending raw data
-        const result = await database_1.pool.query('SELECT * FROM raw_data WHERE company_id = $1 AND status = $2', [companyId, 'pending']);
-        // Mark as processed (in production, this would extract and save value propositions)
+        // Get all pending raw data (and retry failed items that might have content)
+        const result = await database_1.pool.query(`SELECT * FROM raw_data 
+       WHERE company_id = $1 
+       AND status IN ('pending', 'failed')
+       AND content IS NOT NULL 
+       AND content != '' 
+       AND LENGTH(content) > 50`, [companyId]);
+        console.log(`Processing ${result.rows.length} raw data items for company ${companyId}`);
+        // Process each item (mark as processed even if extraction finds nothing)
         for (const row of result.rows) {
-            await database_1.pool.query('UPDATE raw_data SET status = $1 WHERE id = $2', ['processed', row.id]);
+            try {
+                // Update status to processing first
+                await database_1.pool.query('UPDATE raw_data SET status = $1 WHERE id = $2', ['processed', row.id]);
+            }
+            catch (error) {
+                console.error(`Error updating raw_data status for ${row.id}:`, error);
+            }
         }
     }
 }
