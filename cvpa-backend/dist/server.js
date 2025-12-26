@@ -9,7 +9,6 @@ const helmet_1 = __importDefault(require("helmet"));
 const compression_1 = __importDefault(require("compression"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const database_1 = require("./config/database");
-const redis_1 = require("./config/redis");
 const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
 const companies_routes_1 = __importDefault(require("./routes/companies.routes"));
 dotenv_1.default.config();
@@ -46,7 +45,6 @@ app.use((req, res) => {
 async function start() {
     try {
         await (0, database_1.initializeDatabase)();
-        await (0, redis_1.initializeRedis)();
         app.listen(PORT, () => {
             console.log(`✓ Server running on port ${PORT}`);
             console.log(`✓ Health check: http://localhost:${PORT}/health`);

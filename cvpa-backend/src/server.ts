@@ -4,7 +4,6 @@ import helmet from 'helmet';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import { initializeDatabase } from './config/database';
-import { initializeRedis } from './config/redis';
 import authRoutes from './routes/auth.routes';
 import companiesRoutes from './routes/companies.routes';
 
@@ -49,7 +48,6 @@ app.use((req: express.Request, res: express.Response) => {
 async function start() {
   try {
     await initializeDatabase();
-    await initializeRedis();
     
     app.listen(PORT, () => {
       console.log(`✓ Server running on port ${PORT}`);

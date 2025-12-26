@@ -56,3 +56,7 @@
 - [ ] Update Netlify environment variable `VITE_API_URL`
 - [ ] Test frontend → backend connection
 - [ ] Run database migrations on Render
+
+
+
+
