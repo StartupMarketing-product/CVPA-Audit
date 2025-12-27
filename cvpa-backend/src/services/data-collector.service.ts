@@ -34,7 +34,7 @@ export class DataCollectorService {
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
-            headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
+            headless: typeof chromium.headless === 'boolean' ? chromium.headless : true,
           });
 
           const page = await browser.newPage();
@@ -746,7 +746,7 @@ export class DataCollectorService {
               args: chromium.args,
               defaultViewport: chromium.defaultViewport,
               executablePath: await chromium.executablePath(),
-              headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
+              headless: typeof chromium.headless === 'boolean' ? chromium.headless : true,
             });
             
             const page = await browser.newPage();
@@ -840,7 +840,7 @@ export class DataCollectorService {
                 args: chromium.args,
                 defaultViewport: chromium.defaultViewport,
                 executablePath: await chromium.executablePath(),
-                headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
+                headless: typeof chromium.headless === 'boolean' ? chromium.headless : true,
               });
             
             const page = await browser.newPage();
@@ -874,7 +874,7 @@ export class DataCollectorService {
                   args: chromium.args,
                   defaultViewport: chromium.defaultViewport,
                   executablePath: await chromium.executablePath(),
-                  headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
+                  headless: typeof chromium.headless === 'boolean' ? chromium.headless : true,
                 });
                 
                 const articlePage = await articleBrowser.newPage();
