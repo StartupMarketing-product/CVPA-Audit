@@ -614,6 +614,16 @@ router.get('/:id/audits/:auditId', authenticateToken, async (req: AuthRequest, r
       'SELECT * FROM gap_analysis WHERE audit_id = $1 ORDER BY impact_score DESC',
       [auditId]
     );
+    console.log(`Found ${gapsResult.rows.length} gaps in database for audit ${auditId}`);
+    
+    if (gapsResult.rows.length === 0 && scoreResult.rows[0]) {
+      console.warn(`No gaps found for audit ${auditId}, but scores exist:`, {
+        jobs: scoreResult.rows[0].jobs_score,
+        pains: scoreResult.rows[0].pains_score,
+        gains: scoreResult.rows[0].gains_score,
+        overall: scoreResult.rows[0].overall_score
+      });
+    }
 
     // Get value propositions for promises
     const promisesResult = await pool.query(

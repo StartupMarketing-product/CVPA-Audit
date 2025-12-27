@@ -32,7 +32,8 @@
     "natural": "^6.10.3",
     "pdfkit": "^0.14.0",
     "pg": "^8.11.3",
-    "puppeteer": "^21.11.0",
+    "puppeteer-core": "^21.11.0",
+    "@sparticuz/chromium": "^131.0.0",
     "sentiment": "^5.0.2",
     "zod": "^3.22.4"
   },
@@ -54,4 +55,13 @@
     "typescript": "^5.3.3"
   }
 }
+
+
+
+
+
+
+
+
+
 

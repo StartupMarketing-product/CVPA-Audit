@@ -2,19 +2,11 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { pool } from '../config/database';
 import { Review } from '../types';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 
 const ENABLE_REAL_APIS = process.env.ENABLE_REAL_APIS === 'true';
 const USE_PUPPETEER = process.env.USE_PUPPETEER !== 'false'; // Default to true
-
-// Dynamically import puppeteer to avoid errors if not installed
-let puppeteer: any = null;
-if (USE_PUPPETEER) {
-  try {
-    puppeteer = require('puppeteer');
-  } catch (error) {
-    console.warn('Puppeteer not available, falling back to axios-only scraping');
-  }
-}
 
 export class DataCollectorService {
   async scrapeWebsite(url: string, companyId: string): Promise<void> {
@@ -31,22 +23,18 @@ export class DataCollectorService {
       let text = '';
 
       // Try Puppeteer first for Cloudflare bypass
-      if (USE_PUPPETEER && puppeteer) {
+      if (USE_PUPPETEER) {
         try {
           console.log(`Attempting to scrape ${normalizedUrl} with Puppeteer...`);
+          
+          // Configure chromium for serverless environment (Render)
+          chromium.setGraphicsMode(false);
+          
           const browser = await puppeteer.launch({
-            headless: true,
-            args: [
-              '--no-sandbox',
-              '--disable-setuid-sandbox',
-              '--disable-dev-shm-usage',
-              '--disable-accelerated-2d-canvas',
-              '--disable-gpu',
-              '--disable-web-security',
-              '--disable-features=IsolateOrigins,site-per-process',
-              '--single-process', // Required for some containerized environments like Render
-            ],
-            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, // Allow override for Render
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
           });
 
           const page = await browser.newPage();
@@ -92,12 +80,22 @@ export class DataCollectorService {
             return; // Exit early if Puppeteer succeeded
           }
         } catch (puppeteerError: any) {
-          console.warn(`Puppeteer scraping failed for ${normalizedUrl}, falling back to axios:`, puppeteerError.message);
-          console.warn(`Puppeteer error details:`, {
-            name: puppeteerError.name,
-            message: puppeteerError.message,
-            stack: puppeteerError.stack?.substring(0, 500)
-          });
+          const errorMessage = puppeteerError.message || '';
+          const isChromeNotFound = errorMessage.includes('Could not find Chrome') || 
+                                   errorMessage.includes('executablePath') ||
+                                   errorMessage.includes('Browser executable not found');
+          
+          if (isChromeNotFound) {
+            console.warn(`⚠ Chrome/Chromium not available for Puppeteer. Falling back to axios-only scraping.`);
+            console.warn(`This may fail on Cloudflare-protected sites. Error: ${errorMessage}`);
+          } else {
+            console.warn(`Puppeteer scraping failed for ${normalizedUrl}, falling back to axios:`, errorMessage);
+            console.warn(`Puppeteer error details:`, {
+              name: puppeteerError.name,
+              message: errorMessage,
+              stack: puppeteerError.stack?.substring(0, 500)
+            });
+          }
           // Fall through to axios method
         }
       }
@@ -741,11 +739,14 @@ export class DataCollectorService {
     for (const url of socialUrls) {
       try {
         // Use Puppeteer for social media scraping as they often require JS execution
-        if (USE_PUPPETEER && puppeteer) {
+        if (USE_PUPPETEER) {
           try {
+            chromium.setGraphicsMode(false);
             const browser = await puppeteer.launch({
-              headless: true,
-              args: ['--no-sandbox', '--disable-setuid-sandbox'],
+              args: chromium.args,
+              defaultViewport: chromium.defaultViewport,
+              executablePath: await chromium.executablePath(),
+              headless: chromium.headless,
             });
             
             const page = await browser.newPage();
@@ -773,7 +774,16 @@ export class DataCollectorService {
               console.log(`Successfully collected social media data from ${url}`);
             }
           } catch (puppeteerError: any) {
-            console.warn(`Puppeteer failed for ${url}, trying axios:`, puppeteerError.message);
+            const errorMessage = puppeteerError.message || '';
+            const isChromeNotFound = errorMessage.includes('Could not find Chrome') || 
+                                     errorMessage.includes('executablePath') ||
+                                     errorMessage.includes('Browser executable not found');
+            
+            if (isChromeNotFound) {
+              console.warn(`⚠ Chrome/Chromium not available for Puppeteer. Falling back to axios.`);
+            } else {
+              console.warn(`Puppeteer failed for ${url}, trying axios:`, errorMessage);
+            }
             // Fall through to axios
           }
         }
@@ -823,11 +833,15 @@ export class DataCollectorService {
       
       for (const searchUrl of searchUrls) {
         try {
-          if (USE_PUPPETEER && puppeteer) {
-            const browser = await puppeteer.launch({
-              headless: true,
-              args: ['--no-sandbox', '--disable-setuid-sandbox'],
-            });
+          if (USE_PUPPETEER) {
+            try {
+              chromium.setGraphicsMode(false);
+              const browser = await puppeteer.launch({
+                args: chromium.args,
+                defaultViewport: chromium.defaultViewport,
+                executablePath: await chromium.executablePath(),
+                headless: chromium.headless,
+              });
             
             const page = await browser.newPage();
             await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
@@ -855,9 +869,12 @@ export class DataCollectorService {
             // Scrape each article
             for (const article of articles) {
               try {
+                chromium.setGraphicsMode(false);
                 const articleBrowser = await puppeteer.launch({
-                  headless: true,
-                  args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                  args: chromium.args,
+                  defaultViewport: chromium.defaultViewport,
+                  executablePath: await chromium.executablePath(),
+                  headless: chromium.headless,
                 });
                 
                 const articlePage = await articleBrowser.newPage();
@@ -887,7 +904,12 @@ export class DataCollectorService {
                 console.error(`Error scraping article ${article.url}:`, articleError.message);
               }
             }
-          } else {
+            } catch (puppeteerError: any) {
+              console.warn(`Puppeteer failed for media search ${searchUrl}, falling back to axios:`, puppeteerError.message);
+            }
+          }
+          
+          if (!USE_PUPPETEER) {
             // Fallback: Use axios (less effective for JS-heavy sites)
             const response = await axios.get(searchUrl, {
               headers: { 'User-Agent': 'Mozilla/5.0' },

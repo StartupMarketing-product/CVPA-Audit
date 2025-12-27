@@ -49,7 +49,7 @@ export class ScoringService {
   }
 
   private async calculateJobsScore(promises: any[], feedback: any[]): Promise<number> {
-    const promisedJobs = promises.filter((p: any) => p.category === 'job');
+    const promisedJobs = promises.filter(p => p.category === 'job');
     
     if (promisedJobs.length === 0) {
       return 50; // Neutral score if no jobs promised
@@ -86,7 +86,7 @@ export class ScoringService {
   }
 
   private async calculatePainsScore(promises: any[], feedback: any[]): Promise<number> {
-    const promisedPainRelief = promises.filter((p: any) => p.category === 'pain');
+    const promisedPainRelief = promises.filter(p => p.category === 'pain');
     
     if (promisedPainRelief.length === 0) {
       return 50; // Neutral score
@@ -125,7 +125,7 @@ export class ScoringService {
   }
 
   private async calculateGainsScore(promises: any[], feedback: any[]): Promise<number> {
-    const promisedGains = promises.filter((p: any) => p.category === 'gain');
+    const promisedGains = promises.filter(p => p.category === 'gain');
     
     if (promisedGains.length === 0) {
       return 50; // Neutral score
@@ -203,9 +203,8 @@ export class ScoringService {
     } : 'No scores found');
 
     // Generate gaps based on low scores even if no specific promises are extracted
-    // If scores exist and are low, create gaps
-    if (scores && (scores.jobs_score || scores.pains_score || scores.gains_score)) {
-      if (scores.jobs_score && scores.jobs_score < 60) {
+    if (scores) {
+      if (scores.jobs_score != null && scores.jobs_score < 60) {
         gaps.push({
           id: '',
           company_id: companyId,
@@ -220,7 +219,7 @@ export class ScoringService {
         });
       }
 
-      if (scores.pains_score && scores.pains_score < 60) {
+      if (scores.pains_score != null && scores.pains_score < 60) {
         gaps.push({
           id: '',
           company_id: companyId,
@@ -235,7 +234,7 @@ export class ScoringService {
         });
       }
 
-      if (scores.gains_score && scores.gains_score < 60) {
+      if (scores.gains_score != null && scores.gains_score < 60) {
         gaps.push({
           id: '',
           company_id: companyId,
@@ -253,9 +252,9 @@ export class ScoringService {
 
     // Also identify specific gaps from extracted promises
     // Identify gaps in jobs
-    const promisedJobs = promises.filter((p: any) => p.category === 'job');
+    const promisedJobs = promises.filter(p => p.category === 'job');
     for (const job of promisedJobs) {
-      const matchingFeedback = feedback.filter((f: any) => {
+      const matchingFeedback = feedback.filter(f => {
         const jobs = f.jobs_mentioned || [];
         return jobs.some((j: any) => this.textSimilarity(job.extracted_text, j.text) > 0.5);
       });
@@ -278,9 +277,9 @@ export class ScoringService {
     }
 
     // Identify gaps in pains
-    const promisedPainRelief = promises.filter((p: any) => p.category === 'pain');
+    const promisedPainRelief = promises.filter(p => p.category === 'pain');
     for (const pain of promisedPainRelief) {
-      const stillExperienced = feedback.filter((f: any) => {
+      const stillExperienced = feedback.filter(f => {
         const pains = f.pains_mentioned || [];
         return pains.some((p: any) => this.textSimilarity(pain.extracted_text, p.text) > 0.5);
       });
@@ -328,6 +327,7 @@ export class ScoringService {
     }
 
     console.log(`Identified and saved ${insertedGaps.length} gaps for audit ${auditId}`);
+    console.log(`Created ${gaps.length} gaps based on scores (before saving)`);
     if (insertedGaps.length === 0) {
       console.warn(`WARNING: No gaps were created for audit ${auditId}. Scores:`, scores ? {
         jobs: scores.jobs_score,
