@@ -15,7 +15,20 @@ const PORT = process.env.PORT || 3001;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Normalize origins by removing trailing slashes
+    const normalize = (url: string | undefined) => url ? url.replace(/\/$/, '') : undefined;
+    const allowedOrigin = normalize(process.env.CORS_ORIGIN || 'http://localhost:3000');
+    const requestOrigin = normalize(origin);
+    
+    // Allow requests with matching origin, or if no origin (same-origin requests)
+    if (!requestOrigin || requestOrigin === allowedOrigin) {
+      // Return the actual request origin (or allowed origin) to set the header correctly
+      callback(null, origin || allowedOrigin || true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 app.use(compression());
@@ -60,4 +73,3 @@ async function start() {
 }
 
 start();
-
