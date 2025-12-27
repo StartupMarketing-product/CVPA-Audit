@@ -28,13 +28,13 @@ export class DataCollectorService {
           console.log(`Attempting to scrape ${normalizedUrl} with Puppeteer...`);
           
           // Configure chromium for serverless environment (Render)
-          chromium.setGraphicsMode(false);
+          chromium.setGraphicsMode = false;
           
           const browser = await puppeteer.launch({
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
+            headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
           });
 
           const page = await browser.newPage();
@@ -741,12 +741,12 @@ export class DataCollectorService {
         // Use Puppeteer for social media scraping as they often require JS execution
         if (USE_PUPPETEER) {
           try {
-            chromium.setGraphicsMode(false);
+            chromium.setGraphicsMode = false;
             const browser = await puppeteer.launch({
               args: chromium.args,
               defaultViewport: chromium.defaultViewport,
               executablePath: await chromium.executablePath(),
-              headless: chromium.headless,
+              headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
             });
             
             const page = await browser.newPage();
@@ -835,12 +835,12 @@ export class DataCollectorService {
         try {
           if (USE_PUPPETEER) {
             try {
-              chromium.setGraphicsMode(false);
+              chromium.setGraphicsMode = false;
               const browser = await puppeteer.launch({
                 args: chromium.args,
                 defaultViewport: chromium.defaultViewport,
                 executablePath: await chromium.executablePath(),
-                headless: chromium.headless,
+                headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
               });
             
             const page = await browser.newPage();
@@ -869,12 +869,12 @@ export class DataCollectorService {
             // Scrape each article
             for (const article of articles) {
               try {
-                chromium.setGraphicsMode(false);
+                chromium.setGraphicsMode = false;
                 const articleBrowser = await puppeteer.launch({
                   args: chromium.args,
                   defaultViewport: chromium.defaultViewport,
                   executablePath: await chromium.executablePath(),
-                  headless: chromium.headless,
+                  headless: chromium.headless === true || chromium.headless === 'new' ? chromium.headless : true,
                 });
                 
                 const articlePage = await articleBrowser.newPage();
