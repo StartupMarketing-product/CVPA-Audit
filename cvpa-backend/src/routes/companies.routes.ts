@@ -766,5 +766,45 @@ router.get('/:id/audits/:auditId', authenticateToken, async (req: AuthRequest, r
   }
 });
 
+// Regenerate gaps for an existing audit
+router.post('/:id/audits/:auditId/regenerate-gaps', authenticateToken, async (req: AuthRequest, res) => {
+  try {
+    const companyId = req.params.id;
+    const auditId = req.params.auditId;
+
+    // Verify company ownership
+    const companyResult = await pool.query(
+      'SELECT * FROM companies WHERE id = $1 AND created_by = $2',
+      [companyId, req.user!.id]
+    );
+
+    if (companyResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Company not found' });
+    }
+
+    // Verify audit exists and belongs to company
+    const auditResult = await pool.query(
+      'SELECT * FROM audits WHERE id = $1 AND company_id = $2',
+      [auditId, companyId]
+    );
+
+    if (auditResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Audit not found' });
+    }
+
+    // Regenerate gaps
+    const gaps = await scoringService.identifyGaps(companyId, auditId);
+
+    res.json({ 
+      message: 'Gaps regenerated successfully',
+      gapsCount: gaps.length,
+      gaps 
+    });
+  } catch (error: any) {
+    console.error('Error regenerating gaps:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
 

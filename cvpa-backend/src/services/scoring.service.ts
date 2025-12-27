@@ -167,12 +167,15 @@ export class ScoringService {
   }
 
   async identifyGaps(companyId: string, auditId: string): Promise<GapAnalysis[]> {
+    console.log(`Starting gap identification for audit ${auditId}, company ${companyId}`);
+    
     // Get promises and reality
     const promisesResult = await pool.query(
       'SELECT * FROM value_propositions WHERE company_id = $1',
       [companyId]
     );
     const promises = promisesResult.rows;
+    console.log(`Found ${promises.length} value propositions`);
 
     const feedbackResult = await pool.query(
       `SELECT cfa.*, r.review_text 
@@ -182,6 +185,7 @@ export class ScoringService {
       [companyId]
     );
     const feedback = feedbackResult.rows;
+    console.log(`Found ${feedback.length} feedback items`);
 
     const gaps: GapAnalysis[] = [];
 
@@ -191,10 +195,17 @@ export class ScoringService {
       [auditId]
     );
     const scores = scoresResult.rows[0];
+    console.log(`Audit scores:`, scores ? {
+      jobs: scores.jobs_score,
+      pains: scores.pains_score,
+      gains: scores.gains_score,
+      overall: scores.overall_score
+    } : 'No scores found');
 
     // Generate gaps based on low scores even if no specific promises are extracted
-    if (scores) {
-      if (scores.jobs_score < 60) {
+    // If scores exist and are low, create gaps
+    if (scores && (scores.jobs_score || scores.pains_score || scores.gains_score)) {
+      if (scores.jobs_score && scores.jobs_score < 60) {
         gaps.push({
           id: '',
           company_id: companyId,
@@ -209,7 +220,7 @@ export class ScoringService {
         });
       }
 
-      if (scores.pains_score < 60) {
+      if (scores.pains_score && scores.pains_score < 60) {
         gaps.push({
           id: '',
           company_id: companyId,
@@ -224,7 +235,7 @@ export class ScoringService {
         });
       }
 
-      if (scores.gains_score < 60) {
+      if (scores.gains_score && scores.gains_score < 60) {
         gaps.push({
           id: '',
           company_id: companyId,
@@ -317,6 +328,13 @@ export class ScoringService {
     }
 
     console.log(`Identified and saved ${insertedGaps.length} gaps for audit ${auditId}`);
+    if (insertedGaps.length === 0) {
+      console.warn(`WARNING: No gaps were created for audit ${auditId}. Scores:`, scores ? {
+        jobs: scores.jobs_score,
+        pains: scores.pains_score,
+        gains: scores.gains_score
+      } : 'No scores');
+    }
     return insertedGaps;
   }
 
