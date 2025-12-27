@@ -42,7 +42,11 @@ export class DataCollectorService {
               '--disable-dev-shm-usage',
               '--disable-accelerated-2d-canvas',
               '--disable-gpu',
+              '--disable-web-security',
+              '--disable-features=IsolateOrigins,site-per-process',
+              '--single-process', // Required for some containerized environments like Render
             ],
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, // Allow override for Render
           });
 
           const page = await browser.newPage();
@@ -76,8 +80,24 @@ export class DataCollectorService {
 
           await browser.close();
           console.log(`Successfully scraped website with Puppeteer: ${normalizedUrl}`);
+          // If Puppeteer succeeded, we have text, so skip axios fallback
+          if (text && text.length >= 50) {
+            // Save immediately if Puppeteer succeeded
+            await pool.query(
+              `INSERT INTO raw_data (company_id, source_type, source_url, content, status)
+               VALUES ($1, $2, $3, $4, $5)`,
+              [companyId, 'website', normalizedUrl, text.trim().substring(0, 50000), 'pending']
+            );
+            console.log(`Successfully scraped and saved website: ${normalizedUrl}`);
+            return; // Exit early if Puppeteer succeeded
+          }
         } catch (puppeteerError: any) {
           console.warn(`Puppeteer scraping failed for ${normalizedUrl}, falling back to axios:`, puppeteerError.message);
+          console.warn(`Puppeteer error details:`, {
+            name: puppeteerError.name,
+            message: puppeteerError.message,
+            stack: puppeteerError.stack?.substring(0, 500)
+          });
           // Fall through to axios method
         }
       }
@@ -116,10 +136,12 @@ export class DataCollectorService {
       }
       
       // Clean up text
-      text = text.replace(/\s+/g, ' ').trim().substring(0, 50000);
+      if (text) {
+        text = text.replace(/\s+/g, ' ').trim().substring(0, 50000);
+      }
       
       if (!text || text.length < 50) {
-        throw new Error('Insufficient content extracted from website');
+        throw new Error('Insufficient content extracted from website - both Puppeteer and axios methods failed or returned insufficient content');
       }
       
       // Save to raw_data

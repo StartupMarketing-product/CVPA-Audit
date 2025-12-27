@@ -291,20 +291,33 @@ export class ScoringService {
       }
     }
 
-    // Save gaps to database
+    // Delete existing gaps for this audit to avoid duplicates
+    await pool.query(
+      'DELETE FROM gap_analysis WHERE audit_id = $1',
+      [auditId]
+    );
+
+    // Save gaps to database and collect inserted gaps with IDs
+    const insertedGaps: GapAnalysis[] = [];
     for (const gap of gaps) {
-      await pool.query(
-        `INSERT INTO gap_analysis 
-         (company_id, audit_id, gap_type, gap_description, gap_severity, promise_text, reality_text, impact_score, priority)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING *`,
-        [gap.company_id, gap.audit_id, gap.gap_type, gap.gap_description, gap.gap_severity, 
-         gap.promise_text, gap.reality_text, gap.impact_score, gap.priority]
-      );
+      try {
+        const result = await pool.query(
+          `INSERT INTO gap_analysis 
+           (company_id, audit_id, gap_type, gap_description, gap_severity, promise_text, reality_text, impact_score, priority)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING *`,
+          [gap.company_id, gap.audit_id, gap.gap_type, gap.gap_description, gap.gap_severity, 
+           gap.promise_text, gap.reality_text, gap.impact_score, gap.priority]
+        );
+        insertedGaps.push(result.rows[0]);
+      } catch (error) {
+        console.error(`Error inserting gap:`, error);
+        // Continue with other gaps even if one fails
+      }
     }
 
-    console.log(`Identified ${gaps.length} gaps for audit ${auditId}`);
-    return gaps;
+    console.log(`Identified and saved ${insertedGaps.length} gaps for audit ${auditId}`);
+    return insertedGaps;
   }
 
   private calculateGapSeverity(frequency: number, total: number): 'low' | 'medium' | 'high' | 'critical' {
