@@ -35,6 +35,19 @@ app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Root route
+app.get('/', (req: express.Request, res: express.Response) => {
+  res.json({ 
+    message: 'CVPA Backend API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      auth: '/api/v1/auth',
+      companies: '/api/v1/companies'
+    }
+  });
+});
+
 // Health check
 app.get('/health', (req: express.Request, res: express.Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
