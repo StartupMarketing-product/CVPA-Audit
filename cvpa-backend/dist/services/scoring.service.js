@@ -33,7 +33,7 @@ class ScoringService {
         return result.rows[0];
     }
     async calculateJobsScore(promises, feedback) {
-        const promisedJobs = promises.filter((p) => p.category === 'job');
+        const promisedJobs = promises.filter(p => p.category === 'job');
         if (promisedJobs.length === 0) {
             return 50; // Neutral score if no jobs promised
         }
@@ -62,7 +62,7 @@ class ScoringService {
         return totalWeight > 0 ? totalScore / totalWeight : 0;
     }
     async calculatePainsScore(promises, feedback) {
-        const promisedPainRelief = promises.filter((p) => p.category === 'pain');
+        const promisedPainRelief = promises.filter(p => p.category === 'pain');
         if (promisedPainRelief.length === 0) {
             return 50; // Neutral score
         }
@@ -92,7 +92,7 @@ class ScoringService {
         return totalWeight > 0 ? totalScore / totalWeight : 0;
     }
     async calculateGainsScore(promises, feedback) {
-        const promisedGains = promises.filter((p) => p.category === 'gain');
+        const promisedGains = promises.filter(p => p.category === 'gain');
         if (promisedGains.length === 0) {
             return 50; // Neutral score
         }
@@ -125,21 +125,30 @@ class ScoringService {
         return totalWeight > 0 ? totalScore / totalWeight : 0;
     }
     async identifyGaps(companyId, auditId) {
+        console.log(`Starting gap identification for audit ${auditId}, company ${companyId}`);
         // Get promises and reality
         const promisesResult = await database_1.pool.query('SELECT * FROM value_propositions WHERE company_id = $1', [companyId]);
         const promises = promisesResult.rows;
+        console.log(`Found ${promises.length} value propositions`);
         const feedbackResult = await database_1.pool.query(`SELECT cfa.*, r.review_text 
        FROM customer_feedback_analysis cfa
        JOIN reviews r ON r.id = cfa.review_id
        WHERE cfa.company_id = $1`, [companyId]);
         const feedback = feedbackResult.rows;
+        console.log(`Found ${feedback.length} feedback items`);
         const gaps = [];
         // If we have low scores, create gaps based on score analysis
         const scoresResult = await database_1.pool.query('SELECT * FROM audit_scores WHERE audit_id = $1', [auditId]);
         const scores = scoresResult.rows[0];
+        console.log(`Audit scores:`, scores ? {
+            jobs: scores.jobs_score,
+            pains: scores.pains_score,
+            gains: scores.gains_score,
+            overall: scores.overall_score
+        } : 'No scores found');
         // Generate gaps based on low scores even if no specific promises are extracted
         if (scores) {
-            if (scores.jobs_score < 60) {
+            if (scores.jobs_score != null && scores.jobs_score < 60) {
                 gaps.push({
                     id: '',
                     company_id: companyId,
@@ -153,7 +162,7 @@ class ScoringService {
                     priority: 1,
                 });
             }
-            if (scores.pains_score < 60) {
+            if (scores.pains_score != null && scores.pains_score < 60) {
                 gaps.push({
                     id: '',
                     company_id: companyId,
@@ -167,7 +176,7 @@ class ScoringService {
                     priority: 2,
                 });
             }
-            if (scores.gains_score < 60) {
+            if (scores.gains_score != null && scores.gains_score < 60) {
                 gaps.push({
                     id: '',
                     company_id: companyId,
@@ -184,9 +193,9 @@ class ScoringService {
         }
         // Also identify specific gaps from extracted promises
         // Identify gaps in jobs
-        const promisedJobs = promises.filter((p) => p.category === 'job');
+        const promisedJobs = promises.filter(p => p.category === 'job');
         for (const job of promisedJobs) {
-            const matchingFeedback = feedback.filter((f) => {
+            const matchingFeedback = feedback.filter(f => {
                 const jobs = f.jobs_mentioned || [];
                 return jobs.some((j) => this.textSimilarity(job.extracted_text, j.text) > 0.5);
             });
@@ -207,9 +216,9 @@ class ScoringService {
             }
         }
         // Identify gaps in pains
-        const promisedPainRelief = promises.filter((p) => p.category === 'pain');
+        const promisedPainRelief = promises.filter(p => p.category === 'pain');
         for (const pain of promisedPainRelief) {
-            const stillExperienced = feedback.filter((f) => {
+            const stillExperienced = feedback.filter(f => {
                 const pains = f.pains_mentioned || [];
                 return pains.some((p) => this.textSimilarity(pain.extracted_text, p.text) > 0.5);
             });
@@ -229,16 +238,34 @@ class ScoringService {
                 });
             }
         }
-        // Save gaps to database
+        // Delete existing gaps for this audit to avoid duplicates
+        await database_1.pool.query('DELETE FROM gap_analysis WHERE audit_id = $1', [auditId]);
+        // Save gaps to database and collect inserted gaps with IDs
+        const insertedGaps = [];
         for (const gap of gaps) {
-            await database_1.pool.query(`INSERT INTO gap_analysis 
-         (company_id, audit_id, gap_type, gap_description, gap_severity, promise_text, reality_text, impact_score, priority)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING *`, [gap.company_id, gap.audit_id, gap.gap_type, gap.gap_description, gap.gap_severity,
-                gap.promise_text, gap.reality_text, gap.impact_score, gap.priority]);
+            try {
+                const result = await database_1.pool.query(`INSERT INTO gap_analysis 
+           (company_id, audit_id, gap_type, gap_description, gap_severity, promise_text, reality_text, impact_score, priority)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           RETURNING *`, [gap.company_id, gap.audit_id, gap.gap_type, gap.gap_description, gap.gap_severity,
+                    gap.promise_text, gap.reality_text, gap.impact_score, gap.priority]);
+                insertedGaps.push(result.rows[0]);
+            }
+            catch (error) {
+                console.error(`Error inserting gap:`, error);
+                // Continue with other gaps even if one fails
+            }
         }
-        console.log(`Identified ${gaps.length} gaps for audit ${auditId}`);
-        return gaps;
+        console.log(`Identified and saved ${insertedGaps.length} gaps for audit ${auditId}`);
+        console.log(`Created ${gaps.length} gaps based on scores (before saving)`);
+        if (insertedGaps.length === 0) {
+            console.warn(`WARNING: No gaps were created for audit ${auditId}. Scores:`, scores ? {
+                jobs: scores.jobs_score,
+                pains: scores.pains_score,
+                gains: scores.gains_score
+            } : 'No scores');
+        }
+        return insertedGaps;
     }
     calculateGapSeverity(frequency, total) {
         const percentage = (frequency / total) * 100;

@@ -12,6 +12,8 @@ export interface AuthRequest extends Request {
   params: Request['params'];
   body: Request['body'];
   query: Request['query'];
+  path: Request['path'];
+  method: Request['method'];
 }
 
 export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {

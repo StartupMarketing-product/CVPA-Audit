@@ -296,6 +296,9 @@ router.get('/:id/audits', auth_1.authenticateToken, async (req, res) => {
 });
 // Get detailed audit analysis (must be before /:id/audits/:auditId to avoid route conflict)
 router.get('/:id/audits/:auditId/detailed', auth_1.authenticateToken, async (req, res) => {
+    // #region agent log
+    console.log(`[DEBUG] Detailed audit route hit: companyId=${req.params.id}, auditId=${req.params.auditId}, user=${req.user?.id}`);
+    // #endregion
     try {
         const { id: companyId, auditId } = req.params;
         // Verify company ownership
@@ -425,7 +428,7 @@ router.get('/:id/audits/:auditId/detailed', auth_1.authenticateToken, async (req
         const jobsPoints = processFeedbackForDimension('job', promisesJobs.rows);
         const painsPoints = processFeedbackForDimension('pain', promisesPains.rows);
         const gainsPoints = processFeedbackForDimension('gain', promisesGains.rows);
-        res.json({
+        const responseData = {
             audit: auditResult.rows[0],
             scores: scoreResult.rows[0] || null,
             dimensions: {
@@ -442,15 +445,25 @@ router.get('/:id/audits/:auditId/detailed', auth_1.authenticateToken, async (req
                     key_points: gainsPoints || [],
                 },
             },
-        });
+        };
+        // #region agent log
+        console.log(`[DEBUG] Sending detailed audit response: auditId=${auditId}, scores=${JSON.stringify(scoreResult.rows[0] || null)}`);
+        // #endregion
+        res.json(responseData);
     }
     catch (error) {
+        // #region agent log
+        console.error(`[DEBUG] Error in detailed audit route: ${error.message}`, error.stack);
+        // #endregion
         console.error('Error in detailed audit endpoint:', error);
         res.status(500).json({ error: error.message || 'Internal server error' });
     }
 });
 // Get audit results
 router.get('/:id/audits/:auditId', auth_1.authenticateToken, async (req, res) => {
+    // #region agent log
+    console.log(`[DEBUG] Audit route hit: companyId=${req.params.id}, auditId=${req.params.auditId}, user=${req.user?.id}`);
+    // #endregion
     try {
         const { id: companyId, auditId } = req.params;
         // Get audit
@@ -462,6 +475,15 @@ router.get('/:id/audits/:auditId', auth_1.authenticateToken, async (req, res) =>
         const scoreResult = await database_1.pool.query('SELECT * FROM audit_scores WHERE audit_id = $1', [auditId]);
         // Get gaps
         const gapsResult = await database_1.pool.query('SELECT * FROM gap_analysis WHERE audit_id = $1 ORDER BY impact_score DESC', [auditId]);
+        console.log(`Found ${gapsResult.rows.length} gaps in database for audit ${auditId}`);
+        if (gapsResult.rows.length === 0 && scoreResult.rows[0]) {
+            console.warn(`No gaps found for audit ${auditId}, but scores exist:`, {
+                jobs: scoreResult.rows[0].jobs_score,
+                pains: scoreResult.rows[0].pains_score,
+                gains: scoreResult.rows[0].gains_score,
+                overall: scoreResult.rows[0].overall_score
+            });
+        }
         // Get value propositions for promises
         const promisesResult = await database_1.pool.query('SELECT * FROM value_propositions WHERE company_id = $1 ORDER BY confidence DESC', [companyId]);
         // Get customer feedback analysis
@@ -577,13 +599,48 @@ router.get('/:id/audits/:auditId', auth_1.authenticateToken, async (req, res) =>
                     }],
             };
         }));
-        res.json({
+        const responseData = {
             audit: auditResult.rows[0],
             scores: scoreResult.rows[0] || null,
             gaps: enhancedGaps,
+        };
+        // #region agent log
+        console.log(`[DEBUG] Sending audit response (gaps): auditId=${auditId}, gapsCount=${enhancedGaps.length}, scores=${JSON.stringify(scoreResult.rows[0] || null)}`);
+        // #endregion
+        res.json(responseData);
+    }
+    catch (error) {
+        // #region agent log
+        console.error(`[DEBUG] Error in audit route (gaps): ${error.message}`, error.stack);
+        // #endregion
+        res.status(500).json({ error: error.message });
+    }
+});
+// Regenerate gaps for an existing audit
+router.post('/:id/audits/:auditId/regenerate-gaps', auth_1.authenticateToken, async (req, res) => {
+    try {
+        const companyId = req.params.id;
+        const auditId = req.params.auditId;
+        // Verify company ownership
+        const companyResult = await database_1.pool.query('SELECT * FROM companies WHERE id = $1 AND created_by = $2', [companyId, req.user.id]);
+        if (companyResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Company not found' });
+        }
+        // Verify audit exists and belongs to company
+        const auditResult = await database_1.pool.query('SELECT * FROM audits WHERE id = $1 AND company_id = $2', [auditId, companyId]);
+        if (auditResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Audit not found' });
+        }
+        // Regenerate gaps
+        const gaps = await scoringService.identifyGaps(companyId, auditId);
+        res.json({
+            message: 'Gaps regenerated successfully',
+            gapsCount: gaps.length,
+            gaps
         });
     }
     catch (error) {
+        console.error('Error regenerating gaps:', error);
         res.status(500).json({ error: error.message });
     }
 });

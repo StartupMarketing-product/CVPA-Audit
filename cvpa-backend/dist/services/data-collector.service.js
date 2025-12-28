@@ -40,18 +40,10 @@ exports.DataCollectorService = void 0;
 const axios_1 = __importDefault(require("axios"));
 const cheerio = __importStar(require("cheerio"));
 const database_1 = require("../config/database");
+const puppeteer_core_1 = __importDefault(require("puppeteer-core"));
+const chromium_1 = __importDefault(require("@sparticuz/chromium"));
 const ENABLE_REAL_APIS = process.env.ENABLE_REAL_APIS === 'true';
 const USE_PUPPETEER = process.env.USE_PUPPETEER !== 'false'; // Default to true
-// Dynamically import puppeteer to avoid errors if not installed
-let puppeteer = null;
-if (USE_PUPPETEER) {
-    try {
-        puppeteer = require('puppeteer');
-    }
-    catch (error) {
-        console.warn('Puppeteer not available, falling back to axios-only scraping');
-    }
-}
 class DataCollectorService {
     async scrapeWebsite(url, companyId) {
         try {
@@ -64,18 +56,16 @@ class DataCollectorService {
             normalizedUrl = normalizedUrl.replace(/\/+$/, '');
             let text = '';
             // Try Puppeteer first for Cloudflare bypass
-            if (USE_PUPPETEER && puppeteer) {
+            if (USE_PUPPETEER) {
                 try {
                     console.log(`Attempting to scrape ${normalizedUrl} with Puppeteer...`);
-                    const browser = await puppeteer.launch({
-                        headless: true,
-                        args: [
-                            '--no-sandbox',
-                            '--disable-setuid-sandbox',
-                            '--disable-dev-shm-usage',
-                            '--disable-accelerated-2d-canvas',
-                            '--disable-gpu',
-                        ],
+                    // Configure chromium for serverless environment (Render)
+                    chromium_1.default.setGraphicsMode = false;
+                    const browser = await puppeteer_core_1.default.launch({
+                        args: chromium_1.default.args,
+                        defaultViewport: chromium_1.default.defaultViewport,
+                        executablePath: await chromium_1.default.executablePath(),
+                        headless: typeof chromium_1.default.headless === 'boolean' ? chromium_1.default.headless : true,
                     });
                     const page = await browser.newPage();
                     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -103,9 +93,32 @@ class DataCollectorService {
                     });
                     await browser.close();
                     console.log(`Successfully scraped website with Puppeteer: ${normalizedUrl}`);
+                    // If Puppeteer succeeded, we have text, so skip axios fallback
+                    if (text && text.length >= 50) {
+                        // Save immediately if Puppeteer succeeded
+                        await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status)
+               VALUES ($1, $2, $3, $4, $5)`, [companyId, 'website', normalizedUrl, text.trim().substring(0, 50000), 'pending']);
+                        console.log(`Successfully scraped and saved website: ${normalizedUrl}`);
+                        return; // Exit early if Puppeteer succeeded
+                    }
                 }
                 catch (puppeteerError) {
-                    console.warn(`Puppeteer scraping failed for ${normalizedUrl}, falling back to axios:`, puppeteerError.message);
+                    const errorMessage = puppeteerError.message || '';
+                    const isChromeNotFound = errorMessage.includes('Could not find Chrome') ||
+                        errorMessage.includes('executablePath') ||
+                        errorMessage.includes('Browser executable not found');
+                    if (isChromeNotFound) {
+                        console.warn(`⚠ Chrome/Chromium not available for Puppeteer. Falling back to axios-only scraping.`);
+                        console.warn(`This may fail on Cloudflare-protected sites. Error: ${errorMessage}`);
+                    }
+                    else {
+                        console.warn(`Puppeteer scraping failed for ${normalizedUrl}, falling back to axios:`, errorMessage);
+                        console.warn(`Puppeteer error details:`, {
+                            name: puppeteerError.name,
+                            message: errorMessage,
+                            stack: puppeteerError.stack?.substring(0, 500)
+                        });
+                    }
                     // Fall through to axios method
                 }
             }
@@ -139,9 +152,11 @@ class DataCollectorService {
                 }
             }
             // Clean up text
-            text = text.replace(/\s+/g, ' ').trim().substring(0, 50000);
+            if (text) {
+                text = text.replace(/\s+/g, ' ').trim().substring(0, 50000);
+            }
             if (!text || text.length < 50) {
-                throw new Error('Insufficient content extracted from website');
+                throw new Error('Insufficient content extracted from website - both Puppeteer and axios methods failed or returned insufficient content');
             }
             // Save to raw_data
             await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status)
@@ -656,11 +671,14 @@ class DataCollectorService {
         for (const url of socialUrls) {
             try {
                 // Use Puppeteer for social media scraping as they often require JS execution
-                if (USE_PUPPETEER && puppeteer) {
+                if (USE_PUPPETEER) {
                     try {
-                        const browser = await puppeteer.launch({
-                            headless: true,
-                            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                        chromium_1.default.setGraphicsMode = false;
+                        const browser = await puppeteer_core_1.default.launch({
+                            args: chromium_1.default.args,
+                            defaultViewport: chromium_1.default.defaultViewport,
+                            executablePath: await chromium_1.default.executablePath(),
+                            headless: typeof chromium_1.default.headless === 'boolean' ? chromium_1.default.headless : true,
                         });
                         const page = await browser.newPage();
                         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
@@ -681,7 +699,16 @@ class DataCollectorService {
                         }
                     }
                     catch (puppeteerError) {
-                        console.warn(`Puppeteer failed for ${url}, trying axios:`, puppeteerError.message);
+                        const errorMessage = puppeteerError.message || '';
+                        const isChromeNotFound = errorMessage.includes('Could not find Chrome') ||
+                            errorMessage.includes('executablePath') ||
+                            errorMessage.includes('Browser executable not found');
+                        if (isChromeNotFound) {
+                            console.warn(`⚠ Chrome/Chromium not available for Puppeteer. Falling back to axios.`);
+                        }
+                        else {
+                            console.warn(`Puppeteer failed for ${url}, trying axios:`, errorMessage);
+                        }
                         // Fall through to axios
                     }
                 }
@@ -719,62 +746,73 @@ class DataCollectorService {
             ];
             for (const searchUrl of searchUrls) {
                 try {
-                    if (USE_PUPPETEER && puppeteer) {
-                        const browser = await puppeteer.launch({
-                            headless: true,
-                            args: ['--no-sandbox', '--disable-setuid-sandbox'],
-                        });
-                        const page = await browser.newPage();
-                        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-                        await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 20000 });
-                        await page.waitForTimeout(3000);
-                        // Extract article links and titles from search results
-                        const articles = await page.evaluate(() => {
-                            const results = [];
-                            // Google News structure - adjust selectors as needed
-                            const items = document.querySelectorAll('article h3 a, .JtKRv a');
-                            items.forEach((item, index) => {
-                                if (index < 10 && item.href && item.textContent) {
-                                    results.push({
-                                        title: item.textContent.trim(),
-                                        url: item.href,
-                                    });
-                                }
+                    if (USE_PUPPETEER) {
+                        try {
+                            chromium_1.default.setGraphicsMode = false;
+                            const browser = await puppeteer_core_1.default.launch({
+                                args: chromium_1.default.args,
+                                defaultViewport: chromium_1.default.defaultViewport,
+                                executablePath: await chromium_1.default.executablePath(),
+                                headless: typeof chromium_1.default.headless === 'boolean' ? chromium_1.default.headless : true,
                             });
-                            return results;
-                        });
-                        await browser.close();
-                        // Scrape each article
-                        for (const article of articles) {
-                            try {
-                                const articleBrowser = await puppeteer.launch({
-                                    headless: true,
-                                    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+                            const page = await browser.newPage();
+                            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+                            await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+                            await page.waitForTimeout(3000);
+                            // Extract article links and titles from search results
+                            const articles = await page.evaluate(() => {
+                                const results = [];
+                                // Google News structure - adjust selectors as needed
+                                const items = document.querySelectorAll('article h3 a, .JtKRv a');
+                                items.forEach((item, index) => {
+                                    if (index < 10 && item.href && item.textContent) {
+                                        results.push({
+                                            title: item.textContent.trim(),
+                                            url: item.href,
+                                        });
+                                    }
                                 });
-                                const articlePage = await articleBrowser.newPage();
-                                await articlePage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
-                                await articlePage.goto(article.url, { waitUntil: 'networkidle2', timeout: 15000 });
-                                await articlePage.waitForTimeout(2000);
-                                const content = await articlePage.evaluate(() => {
-                                    document.querySelectorAll('script, style, nav, footer, aside, .ad').forEach(el => el.remove());
-                                    const main = document.querySelector('article, main, [role="article"], .article-content') || document.body;
-                                    return main.textContent || '';
-                                });
-                                await articleBrowser.close();
-                                if (content && content.trim().length > 100) {
-                                    const fullText = `${article.title}\n\n${content}`.trim();
-                                    await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status, metadata)
+                                return results;
+                            });
+                            await browser.close();
+                            // Scrape each article
+                            for (const article of articles) {
+                                try {
+                                    chromium_1.default.setGraphicsMode = false;
+                                    const articleBrowser = await puppeteer_core_1.default.launch({
+                                        args: chromium_1.default.args,
+                                        defaultViewport: chromium_1.default.defaultViewport,
+                                        executablePath: await chromium_1.default.executablePath(),
+                                        headless: typeof chromium_1.default.headless === 'boolean' ? chromium_1.default.headless : true,
+                                    });
+                                    const articlePage = await articleBrowser.newPage();
+                                    await articlePage.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+                                    await articlePage.goto(article.url, { waitUntil: 'networkidle2', timeout: 15000 });
+                                    await articlePage.waitForTimeout(2000);
+                                    const content = await articlePage.evaluate(() => {
+                                        document.querySelectorAll('script, style, nav, footer, aside, .ad').forEach(el => el.remove());
+                                        const main = document.querySelector('article, main, [role="article"], .article-content') || document.body;
+                                        return main.textContent || '';
+                                    });
+                                    await articleBrowser.close();
+                                    if (content && content.trim().length > 100) {
+                                        const fullText = `${article.title}\n\n${content}`.trim();
+                                        await database_1.pool.query(`INSERT INTO raw_data (company_id, source_type, source_url, content, status, metadata)
                      VALUES ($1, $2, $3, $4, $5, $6)`, [companyId, 'media', article.url, fullText.substring(0, 50000), 'pending',
-                                        JSON.stringify({ title: article.title })]);
-                                    console.log(`Collected media article: ${article.title}`);
+                                            JSON.stringify({ title: article.title })]);
+                                        console.log(`Collected media article: ${article.title}`);
+                                    }
                                 }
-                            }
-                            catch (articleError) {
-                                console.error(`Error scraping article ${article.url}:`, articleError.message);
+                                catch (articleError) {
+                                    console.error(`Error scraping article ${article.url}:`, articleError.message);
+                                }
                             }
                         }
+                        catch (puppeteerError) {
+                            console.warn(`Puppeteer failed for media search ${searchUrl}, falling back to axios:`, puppeteerError.message);
+                        }
                     }
-                    else {
+                    if (!USE_PUPPETEER) {
                         // Fallback: Use axios (less effective for JS-heavy sites)
                         const response = await axios_1.default.get(searchUrl, {
                             headers: { 'User-Agent': 'Mozilla/5.0' },
