@@ -36,7 +36,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Root route
-app.get('/', (req: express.Request, res: express.Response) => {
+app.get('/', (req, res) => {
   res.json({ 
     message: 'CVPA Backend API',
     version: '1.0.0',
@@ -49,7 +49,7 @@ app.get('/', (req: express.Request, res: express.Response) => {
 });
 
 // Health check
-app.get('/health', (req: express.Request, res: express.Response) => {
+app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
@@ -59,6 +59,9 @@ app.use('/api/v1/companies', companiesRoutes);
 
 // Error handling
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // #region agent log
+  console.error(`[DEBUG] Error handler: method=${req.method}, path=${req.path}, error=${err.message}`, err.stack);
+  // #endregion
   console.error('Error:', err);
   res.status(err.status || 500).json({
     error: err.message || 'Internal server error',
@@ -66,7 +69,10 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // 404 handler
-app.use((req: express.Request, res: express.Response) => {
+app.use((req, res) => {
+  // #region agent log
+  console.log(`[DEBUG] 404 handler: method=${req.method}, path=${req.path}, originalUrl=${req.originalUrl}`);
+  // #endregion
   res.status(404).json({ error: 'Route not found' });
 });
 
@@ -86,3 +92,4 @@ async function start() {
 }
 
 start();
+

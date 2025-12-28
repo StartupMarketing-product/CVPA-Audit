@@ -396,6 +396,9 @@ router.get('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
 
 // Get detailed audit analysis (must be before /:id/audits/:auditId to avoid route conflict)
 router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthRequest, res) => {
+  // #region agent log
+  console.log(`[DEBUG] Detailed audit route hit: companyId=${req.params.id}, auditId=${req.params.auditId}, user=${req.user?.id}`);
+  // #endregion
   try {
     const { id: companyId, auditId } = req.params;
 
@@ -564,7 +567,7 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
     const painsPoints = processFeedbackForDimension('pain', promisesPains.rows);
     const gainsPoints = processFeedbackForDimension('gain', promisesGains.rows);
 
-    res.json({
+    const responseData = {
       audit: auditResult.rows[0],
       scores: scoreResult.rows[0] || null,
       dimensions: {
@@ -581,8 +584,15 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
           key_points: gainsPoints || [],
         },
       },
-    });
+    };
+    // #region agent log
+    console.log(`[DEBUG] Sending detailed audit response: auditId=${auditId}, scores=${JSON.stringify(scoreResult.rows[0] || null)}`);
+    // #endregion
+    res.json(responseData);
   } catch (error: any) {
+    // #region agent log
+    console.error(`[DEBUG] Error in detailed audit route: ${error.message}`, error.stack);
+    // #endregion
     console.error('Error in detailed audit endpoint:', error);
     res.status(500).json({ error: error.message || 'Internal server error' });
   }
@@ -590,6 +600,9 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
 
 // Get audit results
 router.get('/:id/audits/:auditId', authenticateToken, async (req: AuthRequest, res) => {
+  // #region agent log
+  console.log(`[DEBUG] Audit route hit: companyId=${req.params.id}, auditId=${req.params.auditId}, user=${req.user?.id}`);
+  // #endregion
   try {
     const { id: companyId, auditId } = req.params;
 
@@ -766,12 +779,19 @@ router.get('/:id/audits/:auditId', authenticateToken, async (req: AuthRequest, r
       })
     );
 
-    res.json({
+    const responseData = {
       audit: auditResult.rows[0],
       scores: scoreResult.rows[0] || null,
       gaps: enhancedGaps,
-    });
+    };
+    // #region agent log
+    console.log(`[DEBUG] Sending audit response (gaps): auditId=${auditId}, gapsCount=${enhancedGaps.length}, scores=${JSON.stringify(scoreResult.rows[0] || null)}`);
+    // #endregion
+    res.json(responseData);
   } catch (error: any) {
+    // #region agent log
+    console.error(`[DEBUG] Error in audit route (gaps): ${error.message}`, error.stack);
+    // #endregion
     res.status(500).json({ error: error.message });
   }
 });
