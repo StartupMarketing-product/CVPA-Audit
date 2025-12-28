@@ -76,6 +76,18 @@ app.use((req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
+// Handle unhandled promise rejections to prevent crashes
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit - let the server keep running
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Log but don't exit for non-critical errors
+});
+
 // Initialize and start server
 async function start() {
   try {

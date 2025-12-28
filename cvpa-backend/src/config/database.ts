@@ -7,7 +7,7 @@ export const pool = new Pool({
   connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/cvpa',
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionTimeoutMillis: 10000, // Increased for Supabase pooler connections
 });
 
 export async function initializeDatabase() {

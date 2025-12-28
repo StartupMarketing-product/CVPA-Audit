@@ -167,9 +167,10 @@ export class ScoringService {
   }
 
   async identifyGaps(companyId: string, auditId: string): Promise<GapAnalysis[]> {
-    console.log(`Starting gap identification for audit ${auditId}, company ${companyId}`);
-    
-    // Get promises and reality
+    try {
+      console.log(`Starting gap identification for audit ${auditId}, company ${companyId}`);
+      
+      // Get promises and reality
     const promisesResult = await pool.query(
       'SELECT * FROM value_propositions WHERE company_id = $1',
       [companyId]
@@ -326,16 +327,22 @@ export class ScoringService {
       }
     }
 
-    console.log(`Identified and saved ${insertedGaps.length} gaps for audit ${auditId}`);
-    console.log(`Created ${gaps.length} gaps based on scores (before saving)`);
-    if (insertedGaps.length === 0) {
-      console.warn(`WARNING: No gaps were created for audit ${auditId}. Scores:`, scores ? {
-        jobs: scores.jobs_score,
-        pains: scores.pains_score,
-        gains: scores.gains_score
-      } : 'No scores');
+      console.log(`Identified and saved ${insertedGaps.length} gaps for audit ${auditId}`);
+      console.log(`Created ${gaps.length} gaps based on scores (before saving)`);
+      if (insertedGaps.length === 0) {
+        console.warn(`WARNING: No gaps were created for audit ${auditId}. Scores:`, scores ? {
+          jobs: scores.jobs_score,
+          pains: scores.pains_score,
+          gains: scores.gains_score
+        } : 'No scores');
+      }
+      return insertedGaps;
+    } catch (error: any) {
+      console.error(`Error in identifyGaps for audit ${auditId}:`, error);
+      console.error('Error stack:', error.stack);
+      // Return empty array instead of crashing
+      return [];
     }
-    return insertedGaps;
   }
 
   private calculateGapSeverity(frequency: number, total: number): 'low' | 'medium' | 'high' | 'critical' {
