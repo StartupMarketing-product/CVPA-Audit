@@ -7,6 +7,11 @@ export interface AuthRequest extends Request {
     email: string;
     role: string;
   };
+  // Explicitly include Request properties for Render TypeScript resolution
+  headers: Request['headers'];
+  params: Request['params'];
+  body: Request['body'];
+  query: Request['query'];
 }
 
 export function authenticateToken(req: AuthRequest, res: Response, next: NextFunction) {
