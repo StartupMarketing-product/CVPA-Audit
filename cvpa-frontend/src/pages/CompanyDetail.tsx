@@ -42,18 +42,10 @@ export default function CompanyDetail() {
 
       // Get latest audit ID
       try {
-        const auditsResponse = await fetch(`/api/v1/companies/${id}/audits`, {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        if (auditsResponse.ok) {
-          const auditsData = await auditsResponse.json();
-          const latestCompletedAudit = auditsData.audits?.find((a: any) => a.status === 'completed');
-          if (latestCompletedAudit) {
-            setLatestAuditId(latestCompletedAudit.id);
-          }
+        const auditsData = await companiesApi.getAudits(id!);
+        const latestCompletedAudit = auditsData.audits?.find((a: any) => a.status === 'completed');
+        if (latestCompletedAudit) {
+          setLatestAuditId(latestCompletedAudit.id);
         }
       } catch (err) {
         console.error('Failed to load audits:', err);

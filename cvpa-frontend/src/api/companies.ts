@@ -77,6 +77,11 @@ export const companiesApi = {
     return response.data.company;
   },
 
+  getAudits: async (companyId: string): Promise<{ audits: Audit[] }> => {
+    const response = await apiClient.get(`/companies/${companyId}/audits`);
+    return response.data;
+  },
+
   startAudit: async (companyId: string, data: {
     time_period_start: string;
     time_period_end: string;

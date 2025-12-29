@@ -37,31 +37,19 @@ export default function GapAnalysisPage() {
   const loadGaps = async () => {
     try {
       // Get all audits for this company
-      const auditsResponse = await fetch(`/api/v1/companies/${id}/audits`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      const auditsData = await companiesApi.getAudits(id!);
+      const audits = auditsData.audits || [];
       
-      if (auditsResponse.ok) {
-        const auditsData = await auditsResponse.json();
-        const audits = auditsData.audits || [];
-        
-        // Find the latest completed audit
-        const latestCompletedAudit = audits.find((a: any) => a.status === 'completed');
-        
-        if (latestCompletedAudit) {
-          // Get gaps from the latest audit
-          const auditData = await companiesApi.getAudit(id!, latestCompletedAudit.id);
-          console.log('Loaded gaps:', auditData.gaps);
-          setGaps(auditData.gaps || []);
-        } else {
-          console.log('No completed audit found');
-          setGaps([]);
-        }
+      // Find the latest completed audit
+      const latestCompletedAudit = audits.find((a: any) => a.status === 'completed');
+      
+      if (latestCompletedAudit) {
+        // Get gaps from the latest audit
+        const auditData = await companiesApi.getAudit(id!, latestCompletedAudit.id);
+        console.log('Loaded gaps:', auditData.gaps);
+        setGaps(auditData.gaps || []);
       } else {
-        console.error('Failed to fetch audits:', auditsResponse.status);
+        console.log('No completed audit found');
         setGaps([]);
       }
     } catch (error) {
