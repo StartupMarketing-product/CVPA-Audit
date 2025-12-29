@@ -294,36 +294,56 @@ router.get('/:id/data-sources', authenticateToken, async (req: AuthRequest, res)
       [companyId]
     );
 
-    // Get raw data counts by source type with error details
+    // Get the latest audit to filter data by audit time period
+    const latestAuditResult = await pool.query(
+      `SELECT id, start_date, time_period_start, time_period_end 
+       FROM audits 
+       WHERE company_id = $1 
+       ORDER BY created_at DESC 
+       LIMIT 1`,
+      [companyId]
+    );
+    
+    const latestAudit = latestAuditResult.rows[0];
+    const filterByAudit = latestAudit ? `AND rd.collected_at >= $2` : '';
+    const queryParams = latestAudit 
+      ? [companyId, latestAudit.start_date || latestAudit.time_period_start]
+      : [companyId];
+
+    // Get raw data counts by source type with error details (from latest audit only)
     const rawDataCountsResult = await pool.query(
       `SELECT 
         rd.source_type,
         COUNT(*) as count,
         COUNT(CASE WHEN rd.status = 'processed' THEN 1 END) as processed_count,
-        COUNT(CASE WHEN rd.status = 'failed' THEN 1 END) as failed_count
+        COUNT(CASE WHEN rd.status = 'failed' THEN 1 END) as failed_count,
+        MAX(rd.collected_at) as latest_collection
        FROM raw_data rd
-       WHERE rd.company_id = $1 
+       WHERE rd.company_id = $1 ${filterByAudit}
        GROUP BY rd.source_type 
        ORDER BY count DESC`,
-      [companyId]
+      queryParams
     );
 
-    // Get sample error for each source type
+    // Get sample error for each source type (from latest audit)
     const rawDataCounts = await Promise.all(
       rawDataCountsResult.rows.map(async (row) => {
         const errorResult = await pool.query(
-          `SELECT metadata->>'error' as error 
+          `SELECT metadata->>'error' as error, collected_at
            FROM raw_data 
            WHERE company_id = $1 
            AND source_type = $2 
            AND status = 'failed' 
            AND metadata->>'error' IS NOT NULL
+           ${filterByAudit}
+           ORDER BY collected_at DESC
            LIMIT 1`,
-          [companyId, row.source_type]
+          queryParams.concat([row.source_type])
         );
         return {
           ...row,
           sample_error: errorResult.rows[0]?.error || null,
+          latest_collection: row.latest_collection,
         };
       })
     );
@@ -355,7 +375,15 @@ router.get('/:id/data-sources', authenticateToken, async (req: AuthRequest, res)
         processed_count: parseInt(row.processed_count || '0'),
         failed_count: parseInt(row.failed_count || '0'),
         sample_error: row.sample_error || null,
+        latest_collection: row.latest_collection,
+        from_latest_audit: latestAudit ? true : false,
       })),
+      latest_audit_info: latestAudit ? {
+        audit_id: latestAudit.id,
+        start_date: latestAudit.start_date,
+        time_period_start: latestAudit.time_period_start,
+        time_period_end: latestAudit.time_period_end,
+      } : null,
       totals: {
         total_reviews: parseInt(totalStats.rows[0]?.total_reviews || '0'),
         unique_sources: parseInt(totalStats.rows[0]?.unique_sources || '0'),
@@ -370,9 +398,6 @@ router.get('/:id/data-sources', authenticateToken, async (req: AuthRequest, res)
 
 // Get all audits for a company
 router.get('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
-  // #region agent log
-  console.log(`[DEBUG] Get audits route: companyId=${req.params.id}, user=${req.user?.id}`);
-  // #endregion
   try {
     const { id: companyId } = req.params;
 
@@ -383,9 +408,6 @@ router.get('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
     );
 
     if (companyCheck.rows.length === 0) {
-      // #region agent log
-      console.log(`[DEBUG] Company not found: companyId=${companyId}, user=${req.user?.id}`);
-      // #endregion
       return res.status(404).json({ error: 'Company not found' });
     }
 
@@ -394,14 +416,8 @@ router.get('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
       [companyId]
     );
 
-    // #region agent log
-    console.log(`[DEBUG] Returning ${auditsResult.rows.length} audits for company ${companyId}`);
-    // #endregion
     res.json({ audits: auditsResult.rows });
   } catch (error: any) {
-    // #region agent log
-    console.error(`[DEBUG] Error in get audits route:`, error.message, error.stack);
-    // #endregion
     res.status(500).json({ error: error.message });
   }
 });
