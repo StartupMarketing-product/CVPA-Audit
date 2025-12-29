@@ -370,6 +370,9 @@ router.get('/:id/data-sources', authenticateToken, async (req: AuthRequest, res)
 
 // Get all audits for a company
 router.get('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
+  // #region agent log
+  console.log(`[DEBUG] Get audits route: companyId=${req.params.id}, user=${req.user?.id}`);
+  // #endregion
   try {
     const { id: companyId } = req.params;
 
@@ -380,6 +383,9 @@ router.get('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
     );
 
     if (companyCheck.rows.length === 0) {
+      // #region agent log
+      console.log(`[DEBUG] Company not found: companyId=${companyId}, user=${req.user?.id}`);
+      // #endregion
       return res.status(404).json({ error: 'Company not found' });
     }
 
@@ -388,8 +394,14 @@ router.get('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
       [companyId]
     );
 
+    // #region agent log
+    console.log(`[DEBUG] Returning ${auditsResult.rows.length} audits for company ${companyId}`);
+    // #endregion
     res.json({ audits: auditsResult.rows });
   } catch (error: any) {
+    // #region agent log
+    console.error(`[DEBUG] Error in get audits route:`, error.message, error.stack);
+    // #endregion
     res.status(500).json({ error: error.message });
   }
 });
