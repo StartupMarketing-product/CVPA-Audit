@@ -21,11 +21,18 @@ app.use(cors({
     const allowedOrigin = normalize(process.env.CORS_ORIGIN || 'http://localhost:3000');
     const requestOrigin = normalize(origin);
     
+    // #region agent log
+    console.log(`[DEBUG] CORS check: requestOrigin=${requestOrigin}, allowedOrigin=${allowedOrigin}`);
+    // #endregion
+    
     // Allow requests with matching origin, or if no origin (same-origin requests)
     if (!requestOrigin || requestOrigin === allowedOrigin) {
       // Return the actual request origin (or allowed origin) to set the header correctly
       callback(null, origin || allowedOrigin || true);
     } else {
+      // #region agent log
+      console.log(`[DEBUG] CORS rejected: requestOrigin=${requestOrigin} not matching allowedOrigin=${allowedOrigin}`);
+      // #endregion
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -51,6 +58,14 @@ app.get('/', (req, res) => {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Request logging middleware (before routes)
+app.use((req, res, next) => {
+  // #region agent log
+  console.log(`[DEBUG] Incoming request: ${req.method} ${req.path} from origin=${req.headers.origin}`);
+  // #endregion
+  next();
 });
 
 // Routes
