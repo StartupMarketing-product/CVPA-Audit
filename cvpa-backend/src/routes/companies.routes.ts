@@ -463,6 +463,12 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
        LIMIT 5`,
       [companyId]
     );
+    // #region agent log
+    console.log(`[DEBUG] Found ${promisesJobs.rows.length} job promises for company ${companyId}`);
+    if (promisesJobs.rows.length > 0) {
+      console.log(`[DEBUG] Sample job promise:`, promisesJobs.rows[0].extracted_text);
+    }
+    // #endregion
 
     const promisesPains = await pool.query(
       `SELECT * FROM value_propositions 
@@ -471,6 +477,12 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
        LIMIT 5`,
       [companyId]
     );
+    // #region agent log
+    console.log(`[DEBUG] Found ${promisesPains.rows.length} pain promises for company ${companyId}`);
+    if (promisesPains.rows.length > 0) {
+      console.log(`[DEBUG] Sample pain promise:`, promisesPains.rows[0].extracted_text);
+    }
+    // #endregion
 
     const promisesGains = await pool.query(
       `SELECT * FROM value_propositions 
@@ -479,6 +491,12 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
        LIMIT 5`,
       [companyId]
     );
+    // #region agent log
+    console.log(`[DEBUG] Found ${promisesGains.rows.length} gain promises for company ${companyId}`);
+    if (promisesGains.rows.length > 0) {
+      console.log(`[DEBUG] Sample gain promise:`, promisesGains.rows[0].extracted_text);
+    }
+    // #endregion
 
     // Get customer feedback analysis
     const feedbackResult = await pool.query(
@@ -491,9 +509,15 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
 
     // Process feedback to extract key points per dimension
     const processFeedbackForDimension = (category: 'job' | 'pain' | 'gain', promises: any[]) => {
+      // #region agent log
+      console.log(`[DEBUG] Processing ${category} dimension with ${promises.length} promises`);
+      // #endregion
       const keyPoints: any[] = [];
 
       for (const promise of promises) {
+        // #region agent log
+        console.log(`[DEBUG] Processing promise: "${promise.extracted_text}" (category: ${category})`);
+        // #endregion
         // Find matching feedback
         const matchingFeedback = feedbackResult.rows.filter(f => {
           let items: any[] = [];
@@ -539,6 +563,10 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
         const totalReviews = feedbackResult.rows.length;
         const mentionPercentage = totalReviews > 0 ? (mentionCount / totalReviews) * 100 : 0;
 
+        // #region agent log
+        console.log(`[DEBUG] Promise "${promise.extracted_text}": matched ${mentionCount} feedback items (${Math.round(mentionPercentage)}%)`);
+        // #endregion
+        
         keyPoints.push({
           promise: {
             text: promise.extracted_text,
@@ -557,6 +585,10 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
           fulfillment_status: mentionPercentage > 30 ? 'fulfilled' : mentionPercentage > 10 ? 'partial' : 'not_fulfilled',
         });
       }
+      
+      // #region agent log
+      console.log(`[DEBUG] ${category} dimension: created ${keyPoints.length} key points from ${promises.length} promises`);
+      // #endregion
 
       // If we don't have enough promises, create generic points based on low scores
       if (keyPoints.length < 3 && scoreResult.rows.length > 0) {
@@ -595,6 +627,17 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
     const painsPoints = processFeedbackForDimension('pain', promisesPains.rows);
     const gainsPoints = processFeedbackForDimension('gain', promisesGains.rows);
 
+    // #region agent log
+    console.log(`[DEBUG] Processed key points: jobs=${jobsPoints.length}, pains=${painsPoints.length}, gains=${gainsPoints.length}`);
+    if (jobsPoints.length > 0) {
+      console.log(`[DEBUG] Sample jobs key point:`, {
+        promise: jobsPoints[0].promise?.text,
+        fulfillment: jobsPoints[0].fulfillment_status,
+        mention_count: jobsPoints[0].customer_feedback?.mention_count,
+      });
+    }
+    // #endregion
+
     const responseData = {
       audit: auditResult.rows[0],
       scores: scoreResult.rows[0] || null,
@@ -615,6 +658,11 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
     };
     // #region agent log
     console.log(`[DEBUG] Sending detailed audit response: auditId=${auditId}, scores=${JSON.stringify(scoreResult.rows[0] || null)}`);
+    console.log(`[DEBUG] Response dimensions:`, {
+      jobs_key_points: responseData.dimensions.jobs_fulfillment.key_points.length,
+      pains_key_points: responseData.dimensions.pain_relief.key_points.length,
+      gains_key_points: responseData.dimensions.gain_achievement.key_points.length,
+    });
     // #endregion
     res.json(responseData);
   } catch (error: any) {
