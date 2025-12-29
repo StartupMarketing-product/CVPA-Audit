@@ -9,6 +9,8 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  # Note: VITE_API_URL should be set in Netlify Dashboard → Site settings → Environment variables
+  # Setting it here in netlify.toml doesn't work for Vite - it must be set in the dashboard
 
 
 

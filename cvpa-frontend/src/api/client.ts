@@ -2,6 +2,11 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
 
+// #region agent log
+console.log('[API Client] API_BASE_URL:', API_BASE_URL);
+console.log('[API Client] VITE_API_URL env var:', import.meta.env.VITE_API_URL);
+// #endregion
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
@@ -11,6 +16,14 @@ const apiClient = axios.create({
 
 // Add token to requests
 apiClient.interceptors.request.use((config) => {
+  // #region agent log
+  console.log('[API Client] Making request:', {
+    method: config.method,
+    url: config.url,
+    baseURL: config.baseURL,
+    fullURL: `${config.baseURL}${config.url}`,
+  });
+  // #endregion
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
@@ -18,40 +31,15 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle token expiration and HTML responses
+// Handle token expiration
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Log detailed error information for debugging
-    if (error.response) {
-      const contentType = error.response.headers['content-type'] || '';
-      const isHTML = contentType.includes('text/html');
-      
-      if (isHTML) {
-        console.error('[API Error] Backend returned HTML instead of JSON:', {
-          url: error.config?.url,
-          status: error.response.status,
-          statusText: error.response.statusText,
-          contentType,
-          preview: typeof error.response.data === 'string' 
-            ? error.response.data.substring(0, 200) 
-            : error.response.data
-        });
-      }
-      
-      // Check if response is HTML (common when backend is down or route doesn't exist)
-      if (isHTML || (typeof error.response.data === 'string' && error.response.data.trim().startsWith('<'))) {
-        console.error('[API Error] Received HTML response - backend may be down or route not found');
-        return Promise.reject(new Error(`Backend returned HTML (likely error page). Status: ${error.response.status}. Check if backend is running.`));
-      }
-    }
-    
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
-    
     return Promise.reject(error);
   }
 );
