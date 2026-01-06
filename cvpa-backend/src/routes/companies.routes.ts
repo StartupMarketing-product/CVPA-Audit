@@ -463,12 +463,6 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
        LIMIT 5`,
       [companyId]
     );
-    // #region agent log
-    console.log(`[DEBUG] Found ${promisesJobs.rows.length} job promises for company ${companyId}`);
-    if (promisesJobs.rows.length > 0) {
-      console.log(`[DEBUG] Sample job promise:`, promisesJobs.rows[0].extracted_text);
-    }
-    // #endregion
 
     const promisesPains = await pool.query(
       `SELECT * FROM value_propositions 
@@ -477,12 +471,6 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
        LIMIT 5`,
       [companyId]
     );
-    // #region agent log
-    console.log(`[DEBUG] Found ${promisesPains.rows.length} pain promises for company ${companyId}`);
-    if (promisesPains.rows.length > 0) {
-      console.log(`[DEBUG] Sample pain promise:`, promisesPains.rows[0].extracted_text);
-    }
-    // #endregion
 
     const promisesGains = await pool.query(
       `SELECT * FROM value_propositions 
@@ -491,12 +479,6 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
        LIMIT 5`,
       [companyId]
     );
-    // #region agent log
-    console.log(`[DEBUG] Found ${promisesGains.rows.length} gain promises for company ${companyId}`);
-    if (promisesGains.rows.length > 0) {
-      console.log(`[DEBUG] Sample gain promise:`, promisesGains.rows[0].extracted_text);
-    }
-    // #endregion
 
     // Get customer feedback analysis
     const feedbackResult = await pool.query(
@@ -509,15 +491,9 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
 
     // Process feedback to extract key points per dimension
     const processFeedbackForDimension = (category: 'job' | 'pain' | 'gain', promises: any[]) => {
-      // #region agent log
-      console.log(`[DEBUG] Processing ${category} dimension with ${promises.length} promises`);
-      // #endregion
       const keyPoints: any[] = [];
 
       for (const promise of promises) {
-        // #region agent log
-        console.log(`[DEBUG] Processing promise: "${promise.extracted_text}" (category: ${category})`);
-        // #endregion
         // Find matching feedback
         const matchingFeedback = feedbackResult.rows.filter(f => {
           let items: any[] = [];
@@ -563,10 +539,6 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
         const totalReviews = feedbackResult.rows.length;
         const mentionPercentage = totalReviews > 0 ? (mentionCount / totalReviews) * 100 : 0;
 
-        // #region agent log
-        console.log(`[DEBUG] Promise "${promise.extracted_text}": matched ${mentionCount} feedback items (${Math.round(mentionPercentage)}%)`);
-        // #endregion
-        
         keyPoints.push({
           promise: {
             text: promise.extracted_text,
@@ -585,10 +557,6 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
           fulfillment_status: mentionPercentage > 30 ? 'fulfilled' : mentionPercentage > 10 ? 'partial' : 'not_fulfilled',
         });
       }
-      
-      // #region agent log
-      console.log(`[DEBUG] ${category} dimension: created ${keyPoints.length} key points from ${promises.length} promises`);
-      // #endregion
 
       // If we don't have enough promises, create generic points based on low scores
       if (keyPoints.length < 3 && scoreResult.rows.length > 0) {
@@ -627,17 +595,6 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
     const painsPoints = processFeedbackForDimension('pain', promisesPains.rows);
     const gainsPoints = processFeedbackForDimension('gain', promisesGains.rows);
 
-    // #region agent log
-    console.log(`[DEBUG] Processed key points: jobs=${jobsPoints.length}, pains=${painsPoints.length}, gains=${gainsPoints.length}`);
-    if (jobsPoints.length > 0) {
-      console.log(`[DEBUG] Sample jobs key point:`, {
-        promise: jobsPoints[0].promise?.text,
-        fulfillment: jobsPoints[0].fulfillment_status,
-        mention_count: jobsPoints[0].customer_feedback?.mention_count,
-      });
-    }
-    // #endregion
-
     const responseData = {
       audit: auditResult.rows[0],
       scores: scoreResult.rows[0] || null,
@@ -658,11 +615,6 @@ router.get('/:id/audits/:auditId/detailed', authenticateToken, async (req: AuthR
     };
     // #region agent log
     console.log(`[DEBUG] Sending detailed audit response: auditId=${auditId}, scores=${JSON.stringify(scoreResult.rows[0] || null)}`);
-    console.log(`[DEBUG] Response dimensions:`, {
-      jobs_key_points: responseData.dimensions.jobs_fulfillment.key_points.length,
-      pains_key_points: responseData.dimensions.pain_relief.key_points.length,
-      gains_key_points: responseData.dimensions.gain_achievement.key_points.length,
-    });
     // #endregion
     res.json(responseData);
   } catch (error: any) {
@@ -730,9 +682,10 @@ router.get('/:id/audits/:auditId', authenticateToken, async (req: AuthRequest, r
     );
 
     // Enhance gaps with detailed promise and reality points
+    // Each gap now represents one specific promise
     const enhancedGaps = await Promise.all(
       gapsResult.rows.map(async (gap) => {
-        // Get up to 5 specific promises for this gap type
+        // Find the specific promise that matches this gap's promise_text
         const categoryMap: { [key: string]: string } = {
           'jobs': 'job',
           'pains': 'pain',
@@ -740,117 +693,86 @@ router.get('/:id/audits/:auditId', authenticateToken, async (req: AuthRequest, r
         };
         const category = categoryMap[gap.gap_type] || gap.gap_type;
         
-        const relevantPromises = promisesResult.rows
-          .filter(p => p.category === category)
-          .slice(0, 5)
-          .map(p => ({
-            text: p.extracted_text,
-            source_type: p.source_type,
-            source_url: p.source_url,
-            confidence: p.confidence,
-            job_type: p.job_type,
-            gain_type: p.gain_type,
-          }));
+        // Find the specific promise that matches this gap
+        const matchingPromise = promisesResult.rows.find(p => 
+          p.category === category && 
+          p.extracted_text === gap.promise_text
+        );
 
-        // Get up to 5 customer feedback points showing non-delivery
-        let realityPoints: any[] = [];
-        
-        if (gap.gap_type === 'jobs') {
-          // For jobs: find reviews that don't mention the promised jobs
-          const promisedJobTexts = relevantPromises.map(p => p.text.toLowerCase());
-          realityPoints = feedbackResult.rows
-            .filter(f => {
-              const jobsMentioned = (f.jobs_mentioned || []).map((j: any) => j.text?.toLowerCase() || '');
-              // Check if review mentions any of the promised jobs
-              const mentionsPromisedJob = promisedJobTexts.some(promiseText => 
-                jobsMentioned.some((mentioned: string) => 
-                  mentioned.includes(promiseText.substring(0, 20)) || promiseText.includes(mentioned.substring(0, 20))
-                )
-              );
-              return !mentionsPromisedJob || f.sentiment < 0.4; // Low sentiment or no mention
-            })
-            .slice(0, 5)
-            .map(f => ({
-              text: f.review_text,
-              rating: f.rating,
-              source: f.source,
-              sentiment: f.sentiment,
-              date: f.review_date,
-              issue: 'Job not fulfilled or low satisfaction',
-            }));
-        } else if (gap.gap_type === 'pains') {
-          // For pains: find reviews that still mention the pains
-          const promisedPainTexts = relevantPromises.map(p => p.text.toLowerCase());
-          realityPoints = feedbackResult.rows
-            .filter(f => {
-              const painsMentioned = (f.pains_mentioned || []).map((p: any) => p.text?.toLowerCase() || '');
-              return painsMentioned.some((pain: string) => 
-                promisedPainTexts.some(promiseText => 
-                  pain.includes(promiseText.substring(0, 20)) || promiseText.includes(pain.substring(0, 20))
-                )
-              );
-            })
-            .slice(0, 5)
-            .map(f => ({
-              text: f.review_text,
-              rating: f.rating,
-              source: f.source,
-              sentiment: f.sentiment,
-              date: f.review_date,
-              issue: 'Pain still experienced despite promise',
-            }));
-        } else if (gap.gap_type === 'gains') {
-          // For gains: find reviews that don't mention the promised gains
-          const promisedGainTexts = relevantPromises.map(p => p.text.toLowerCase());
-          realityPoints = feedbackResult.rows
-            .filter(f => {
-              const gainsMentioned = (f.gains_mentioned || []).map((g: any) => g.text?.toLowerCase() || '');
-              const mentionsPromisedGain = promisedGainTexts.some(promiseText => 
-                gainsMentioned.some((mentioned: string) => 
-                  mentioned.includes(promiseText.substring(0, 20)) || promiseText.includes(mentioned.substring(0, 20))
-                )
-              );
-              return !mentionsPromisedGain || f.sentiment < 0.4;
-            })
-            .slice(0, 5)
-            .map(f => ({
-              text: f.review_text,
-              rating: f.rating,
-              source: f.source,
-              sentiment: f.sentiment,
-              date: f.review_date,
-              issue: 'Promised gain not achieved',
-            }));
+        // If we found the specific promise, use it; otherwise use gap data
+        const promise = matchingPromise || {
+          extracted_text: gap.promise_text,
+          source_type: 'general',
+          source_url: '',
+          confidence: 0.8,
+          job_type: null,
+          gain_type: null,
+          category: category,
+        };
+
+        // Calculate aggregated statistics for this specific promise
+        const stats = scoringService.calculatePromiseStatistics(
+          promise,
+          feedbackResult.rows,
+          category as 'job' | 'pain' | 'gain'
+        );
+
+        // Get representative quotes (2-3 top by relevance/sentiment)
+        // Sort by sentiment (lower is worse for gaps) and take top 3
+        const representativeQuotes = stats.matchingFeedback
+          .map(f => ({
+            text: f.review_text,
+            rating: f.rating,
+            source: f.source,
+            sentiment: f.sentiment,
+            date: f.review_date,
+          }))
+          .sort((a, b) => (a.sentiment || 0.5) - (b.sentiment || 0.5)) // Lower sentiment first (more relevant for gaps)
+          .slice(0, 3);
+
+        // Determine fulfillment status
+        let fulfillmentStatus: 'fulfilled' | 'partially_fulfilled' | 'not_fulfilled';
+        if (category === 'job') {
+          fulfillmentStatus = stats.fulfillmentRate >= 0.5 ? 'fulfilled' :
+                             stats.fulfillmentRate >= 0.2 ? 'partially_fulfilled' : 'not_fulfilled';
+        } else if (category === 'pain') {
+          // For pains, higher fulfillment = less pain mentioned
+          fulfillmentStatus = stats.fulfillmentRate >= 0.7 ? 'fulfilled' :
+                             stats.fulfillmentRate >= 0.4 ? 'partially_fulfilled' : 'not_fulfilled';
+        } else {
+          // For gains
+          fulfillmentStatus = stats.fulfillmentRate >= 0.6 ? 'fulfilled' :
+                             stats.fulfillmentRate >= 0.3 ? 'partially_fulfilled' : 'not_fulfilled';
         }
 
-        // If we don't have enough reality points, add generic ones based on low sentiment
-        if (realityPoints.length < 3) {
-          const lowSentimentReviews = feedbackResult.rows
-            .filter(f => f.sentiment < 0.5)
-            .slice(0, 5 - realityPoints.length)
-            .map(f => ({
-              text: f.review_text,
-              rating: f.rating,
-              source: f.source,
-              sentiment: f.sentiment,
-              date: f.review_date,
-              issue: 'Customer dissatisfaction',
-            }));
-          realityPoints = [...realityPoints, ...lowSentimentReviews].slice(0, 5);
-        }
+        // Build aggregated reality with statistics and quotes
+        const aggregatedReality = {
+          statistics: {
+            mention_percentage: stats.mentionPercentage,
+            mention_count: stats.mentionCount,
+            total_reviews: feedbackResult.rows.length,
+            average_sentiment: stats.averageSentiment,
+            fulfillment_rate: stats.fulfillmentRate,
+            fulfillment_status: fulfillmentStatus,
+          },
+          quotes: representativeQuotes,
+        };
+
+        // Build detailed promise (single promise, not array)
+        const detailedPromise = {
+          text: promise.extracted_text,
+          source_type: promise.source_type,
+          source_url: promise.source_url,
+          confidence: promise.confidence,
+          job_type: promise.job_type,
+          gain_type: promise.gain_type,
+          category: category,
+        };
 
         return {
           ...gap,
-          detailed_promises: relevantPromises.length > 0 ? relevantPromises : [{
-            text: gap.promise_text,
-            source_type: 'general',
-            confidence: 0.8,
-          }],
-          detailed_reality: realityPoints.length > 0 ? realityPoints : [{
-            text: gap.reality_text,
-            source: 'analysis',
-            issue: 'Gap identified',
-          }],
+          detailed_promises: detailedPromise, // Single promise object, not array
+          detailed_reality: aggregatedReality, // Aggregated stats + quotes
         };
       })
     );

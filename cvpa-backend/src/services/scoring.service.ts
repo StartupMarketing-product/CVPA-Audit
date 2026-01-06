@@ -251,52 +251,49 @@ export class ScoringService {
       }
     }
 
-    // Also identify specific gaps from extracted promises
-    // Identify gaps in jobs
-    const promisedJobs = promises.filter(p => p.category === 'job');
-    for (const job of promisedJobs) {
-      const matchingFeedback = feedback.filter(f => {
-        const jobs = f.jobs_mentioned || [];
-        return jobs.some((j: any) => this.textSimilarity(job.extracted_text, j.text) > 0.5);
-      });
-
-      if (matchingFeedback.length === 0 || matchingFeedback.length < feedback.length * 0.05) {
-        // Gap: Job promised but not delivered
+    // Identify specific gaps from extracted promises - one gap per promise
+    // Process all promises and create gaps for those with low fulfillment
+    const allPromises = promises.filter(p => ['job', 'pain', 'gain'].includes(p.category));
+    
+    for (const promise of allPromises) {
+      const category = promise.category as 'job' | 'pain' | 'gain';
+      const stats = this.calculatePromiseStatistics(promise, feedback, category);
+      
+      // Create gap if fulfillment rate < 30% or sentiment < 0.4
+      const shouldCreateGap = stats.fulfillmentRate < 0.3 || stats.averageSentiment < 0.4;
+      
+      if (shouldCreateGap) {
+        // Determine gap type mapping
+        const gapTypeMap: { [key: string]: 'jobs' | 'pains' | 'gains' } = {
+          'job': 'jobs',
+          'pain': 'pains',
+          'gain': 'gains',
+        };
+        const gapType = gapTypeMap[category] || 'jobs';
+        
+        // Create gap description based on category
+        let gapDescription = '';
+        if (category === 'job') {
+          gapDescription = `Promised job not being fulfilled: ${promise.extracted_text}`;
+        } else if (category === 'pain') {
+          gapDescription = `Pain relief promised but pain still experienced: ${promise.extracted_text}`;
+        } else {
+          gapDescription = `Promised gain not achieved: ${promise.extracted_text}`;
+        }
+        
+        // Create reality text with aggregated statistics
+        const realityText = `${stats.mentionPercentage}% of reviews mention this. Average sentiment: ${stats.averageSentiment.toFixed(2)}/1.0. Fulfillment rate: ${(stats.fulfillmentRate * 100).toFixed(1)}%`;
+        
         gaps.push({
           id: '',
           company_id: companyId,
           audit_id: auditId,
-          gap_type: 'jobs',
-          gap_description: `Promised job not being fulfilled: ${job.extracted_text}`,
-          gap_severity: this.calculateGapSeverity(matchingFeedback.length, feedback.length),
-          promise_text: job.extracted_text,
-          reality_text: 'Not mentioned in customer feedback',
-          impact_score: (1 - matchingFeedback.length / feedback.length) * 100,
-          priority: gaps.length + 1,
-        });
-      }
-    }
-
-    // Identify gaps in pains
-    const promisedPainRelief = promises.filter(p => p.category === 'pain');
-    for (const pain of promisedPainRelief) {
-      const stillExperienced = feedback.filter(f => {
-        const pains = f.pains_mentioned || [];
-        return pains.some((p: any) => this.textSimilarity(pain.extracted_text, p.text) > 0.5);
-      });
-
-      if (stillExperienced.length > feedback.length * 0.05) {
-        // Gap: Pain relief promised but pain still experienced
-        gaps.push({
-          id: '',
-          company_id: companyId,
-          audit_id: auditId,
-          gap_type: 'pains',
-          gap_description: `Pain relief promised but pain still experienced: ${pain.extracted_text}`,
-          gap_severity: this.calculateGapSeverity(stillExperienced.length, feedback.length),
-          promise_text: pain.extracted_text,
-          reality_text: stillExperienced.map(f => f.review_text).slice(0, 200).join('; ') || 'Pain still mentioned in reviews',
-          impact_score: (stillExperienced.length / feedback.length) * 100,
+          gap_type: gapType,
+          gap_description: gapDescription,
+          gap_severity: this.calculateGapSeverity(stats.mentionCount, feedback.length),
+          promise_text: promise.extracted_text,
+          reality_text: realityText,
+          impact_score: (1 - stats.fulfillmentRate) * 100,
           priority: gaps.length + 1,
         });
       }
@@ -343,6 +340,87 @@ export class ScoringService {
       // Return empty array instead of crashing
       return [];
     }
+  }
+
+  /**
+   * Calculate aggregated statistics for a specific promise
+   * Returns mention rate, average sentiment, fulfillment rate, and matching feedback
+   */
+  calculatePromiseStatistics(
+    promise: any,
+    feedback: any[],
+    category: 'job' | 'pain' | 'gain'
+  ): {
+    mentionCount: number;
+    mentionPercentage: number;
+    averageSentiment: number;
+    fulfillmentRate: number;
+    matchingFeedback: any[];
+  } {
+    const matchingFeedback: any[] = [];
+    
+    for (const f of feedback) {
+      let items: any[] = [];
+      try {
+        // Parse JSON fields if they're strings
+        if (category === 'job') {
+          items = typeof f.jobs_mentioned === 'string' 
+            ? JSON.parse(f.jobs_mentioned) 
+            : (f.jobs_mentioned || []);
+        } else if (category === 'pain') {
+          items = typeof f.pains_mentioned === 'string' 
+            ? JSON.parse(f.pains_mentioned) 
+            : (f.pains_mentioned || []);
+        } else if (category === 'gain') {
+          items = typeof f.gains_mentioned === 'string' 
+            ? JSON.parse(f.gains_mentioned) 
+            : (f.gains_mentioned || []);
+        }
+      } catch (e) {
+        items = [];
+      }
+
+      // Check if this feedback mentions the promise
+      const mentionsPromise = items.some((item: any) => {
+        const similarity = this.textSimilarity(promise.extracted_text, item.text || '');
+        return similarity > 0.5;
+      });
+
+      if (mentionsPromise) {
+        matchingFeedback.push(f);
+      }
+    }
+
+    const mentionCount = matchingFeedback.length;
+    const totalReviews = feedback.length;
+    const mentionPercentage = totalReviews > 0 ? (mentionCount / totalReviews) * 100 : 0;
+
+    // Calculate average sentiment
+    const averageSentiment = matchingFeedback.length > 0
+      ? matchingFeedback.reduce((sum, f) => sum + (f.sentiment || 0.5), 0) / matchingFeedback.length
+      : 0.5;
+
+    // Calculate fulfillment rate based on category
+    let fulfillmentRate = 0;
+    if (category === 'job') {
+      // For jobs: fulfillment = percentage of reviews that mention the job
+      fulfillmentRate = mentionPercentage / 100;
+    } else if (category === 'pain') {
+      // For pains: fulfillment = inverse of mention rate (less mentions = better)
+      fulfillmentRate = 1 - (mentionPercentage / 100);
+    } else if (category === 'gain') {
+      // For gains: fulfillment = percentage of mentions with positive sentiment
+      const positiveMentions = matchingFeedback.filter(f => (f.sentiment || 0.5) > 0.5).length;
+      fulfillmentRate = mentionCount > 0 ? positiveMentions / mentionCount : 0;
+    }
+
+    return {
+      mentionCount,
+      mentionPercentage: Math.round(mentionPercentage * 10) / 10, // Round to 1 decimal
+      averageSentiment: Math.round(averageSentiment * 100) / 100, // Round to 2 decimals
+      fulfillmentRate: Math.round(fulfillmentRate * 100) / 100, // Round to 2 decimals
+      matchingFeedback,
+    };
   }
 
   private calculateGapSeverity(frequency: number, total: number): 'low' | 'medium' | 'high' | 'critical' {
