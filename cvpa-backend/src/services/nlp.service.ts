@@ -22,6 +22,84 @@ const GAIN_KEYWORDS = {
 };
 
 export class NLPService {
+  /**
+   * Check if text contains company profile metadata that should be excluded
+   * from value proposition extraction
+   */
+  private isCompanyMetadata(text: string): boolean {
+    const textLower = text.toLowerCase();
+    
+    // Company profile metadata patterns
+    const metadataPatterns = [
+      /industry\s+\w+/i,
+      /company\s+size/i,
+      /headquarters/i,
+      /locations?\s+/i,
+      /employees?\s+at/i,
+      /get\s+directions/i,
+      /\d{1,2},\d{3}-\d{1,2},\d{3}\s+employees/i,
+      /\d+\s+employees/i,
+      /headquarters\s+[a-z]+/i,
+      /locations?\s+[a-z]+\s+[a-z]+/i,
+      /^[a-z]+\s+industry/i,
+      /company\s+size\s+\d+/i,
+      /^\d{1,5}\s+employees/i,
+    ];
+    
+    // Check if text matches metadata patterns
+    for (const pattern of metadataPatterns) {
+      if (pattern.test(text)) {
+        return true;
+      }
+    }
+    
+    // Check for common LinkedIn profile structure
+    if (textLower.includes('industry') && 
+        (textLower.includes('employees') || textLower.includes('headquarters') || textLower.includes('locations'))) {
+      return true;
+    }
+    
+    // Check if text is too generic (just company info without value proposition)
+    const genericPatterns = [
+      /^[a-z]+\s+industry\s+retail/i,
+      /company\s+size\s+\d+/i,
+      /headquarters\s+[a-z]+/i,
+    ];
+    
+    for (const pattern of genericPatterns) {
+      if (pattern.test(text) && text.length < 100) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Check if extracted text is a valid value proposition
+   * Must contain action verbs or benefit words, and be meaningful
+   */
+  private isValidValueProposition(text: string): boolean {
+    if (!text || text.length < 30) {
+      return false;
+    }
+    
+    // Must contain action verbs or benefit indicators
+    const actionVerbs = /\b(help|enable|allow|solve|fix|save|improve|provide|deliver|offer|create|make|give|get|achieve|accomplish|eliminate|remove|reduce|increase|enhance|optimize)\b/i;
+    const benefitWords = /\b(better|faster|easier|cheaper|affordable|convenient|reliable|secure|simple|quick|fast|easy|value|benefit|advantage)\b/i;
+    
+    if (!actionVerbs.test(text) && !benefitWords.test(text)) {
+      return false;
+    }
+    
+    // Exclude company metadata
+    if (this.isCompanyMetadata(text)) {
+      return false;
+    }
+    
+    return true;
+  }
+
   analyzeSentiment(text: string): number {
     const result = sentiment.analyze(text);
     // Convert to -1 to 1 scale, then to 0 to 1 scale
@@ -202,6 +280,11 @@ export class NLPService {
           extracted = extracted.replace(/^(to|so|and|,)/i, '').trim();
           
           if (extracted.length > 15 && extracted.length < 200) {
+            // Validate that this is a real value proposition, not metadata
+            if (!this.isValidValueProposition(extracted)) {
+              continue;
+            }
+            
             // Determine job type
             let jobType: 'functional' | 'emotional' | 'social' = 'functional';
             if (/feel|confident|happy|satisfied|relieved|proud|secure|comfortable|peace/i.test(extracted)) {
@@ -240,6 +323,11 @@ export class NLPService {
           extracted = extracted.replace(/^(we|our solution|our product|our service)/i, '').trim();
           
           if (extracted.length > 20 && extracted.length < 200) {
+            // Validate that this is a real value proposition, not metadata
+            if (!this.isValidValueProposition(extracted)) {
+              continue;
+            }
+            
             propositions.push({
               id: '',
               company_id: companyId,
@@ -260,16 +348,20 @@ export class NLPService {
       if (painSolutions && painSolutions[1]) {
         const painText = painSolutions[1].trim();
         if (painText.length > 10 && painText.length < 150) {
-          propositions.push({
-            id: '',
-            company_id: companyId,
-            source_type: sourceType,
-            source_url: sourceUrl,
-            extracted_text: sentence.trim(),
-            category: 'pain',
-            confidence: 0.85,
-            extracted_at: new Date(),
-          });
+          const extractedText = sentence.trim();
+          // Validate that this is a real value proposition, not metadata
+          if (this.isValidValueProposition(extractedText)) {
+            propositions.push({
+              id: '',
+              company_id: companyId,
+              source_type: sourceType,
+              source_url: sourceUrl,
+              extracted_text: extractedText,
+              category: 'pain',
+              confidence: 0.85,
+              extracted_at: new Date(),
+            });
+          }
         }
       }
     }
@@ -292,6 +384,11 @@ export class NLPService {
           }
           
           if (extracted.length > 15 && extracted.length < 200) {
+            // Validate that this is a real value proposition, not metadata
+            if (!this.isValidValueProposition(extracted)) {
+              continue;
+            }
+            
             // Determine gain type
             let gainType: 'required' | 'expected' | 'desired' | 'unexpected' = 'expected';
             if (/must|need|essential|required|crucial|critical/i.test(extracted)) {
@@ -330,17 +427,20 @@ export class NLPService {
       );
       
       if (!alreadyExists && job.text.length > 20) {
-        propositions.push({
-          id: '',
-          company_id: companyId,
-          source_type: sourceType,
-          source_url: sourceUrl,
-          extracted_text: job.text,
-          category: 'job',
-          job_type: job.type as 'functional' | 'emotional' | 'social',
-          confidence: Math.max(0.6, job.confidence),
-          extracted_at: new Date(),
-        });
+        // Validate that this is a real value proposition, not metadata
+        if (this.isValidValueProposition(job.text)) {
+          propositions.push({
+            id: '',
+            company_id: companyId,
+            source_type: sourceType,
+            source_url: sourceUrl,
+            extracted_text: job.text,
+            category: 'job',
+            job_type: job.type as 'functional' | 'emotional' | 'social',
+            confidence: Math.max(0.6, job.confidence),
+            extracted_at: new Date(),
+          });
+        }
       }
     }
 
@@ -375,4 +475,3 @@ export class NLPService {
     return unique.sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
   }
 }
-
