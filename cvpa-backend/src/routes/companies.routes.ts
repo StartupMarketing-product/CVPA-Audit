@@ -165,24 +165,37 @@ router.post('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
         }
 
         // Process raw data and extract value propositions
+        // Note: processRawData() marks items as 'processed', but we also check 'pending' 
+        // to catch items that were just scraped but not yet marked as processed
         await dataCollector.processRawData(companyId);
         
-        // Get all raw data with content (including previously failed items with content)
+        // Get all raw data with content (ready to extract from - include both pending and processed)
+        console.log(`[EXTRACTION] Querying for raw_data items to extract from...`);
         const rawDataResult = await pool.query(
           `SELECT * FROM raw_data 
            WHERE company_id = $1 
-           AND status = 'processed'
+           AND status IN ('pending', 'processed')
            AND content IS NOT NULL 
            AND content != '' 
            AND LENGTH(content) > 50`,
           [companyId]
         );
 
-        console.log(`Extracting value propositions from ${rawDataResult.rows.length} processed items`);
+        console.log(`[EXTRACTION] Found ${rawDataResult.rows.length} raw_data items with content`);
+        if (rawDataResult.rows.length > 0) {
+          console.log(`[EXTRACTION] Sample items:`, rawDataResult.rows.slice(0, 3).map(r => ({
+            source_type: r.source_type,
+            source_url: r.source_url?.substring(0, 50),
+            content_length: r.content?.length || 0,
+            status: r.status
+          })));
+        }
 
         let totalExtracted = 0;
         for (const rawData of rawDataResult.rows) {
           try {
+            console.log(`[EXTRACTION] Extracting from ${rawData.source_type}: ${rawData.source_url}, content length: ${rawData.content?.length || 0}`);
+            
             const propositions = nlpService.extractValuePropositions(
               rawData.content,
               rawData.source_type,
@@ -190,30 +203,47 @@ router.post('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
               companyId
             );
 
-            console.log(`Extracted ${propositions.length} propositions from ${rawData.source_type}: ${rawData.source_url}`);
+            console.log(`[EXTRACTION] Extracted ${propositions.length} raw propositions from ${rawData.source_type}: ${rawData.source_url}`);
 
+            let savedCount = 0;
             for (const prop of propositions) {
               // Skip if extracted text is too generic or short
               if (!prop.extracted_text || prop.extracted_text.length < 15) {
+                console.log(`[EXTRACTION] Skipping proposition (too short): "${prop.extracted_text?.substring(0, 50)}"`);
                 continue;
               }
 
-              await pool.query(
+              const insertResult = await pool.query(
                 `INSERT INTO value_propositions 
                  (company_id, source_type, source_url, extracted_text, category, job_type, gain_type, confidence)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                 ON CONFLICT DO NOTHING`,
+                 ON CONFLICT DO NOTHING
+                 RETURNING id`,
                 [prop.company_id, prop.source_type, prop.source_url, prop.extracted_text,
                  prop.category, prop.job_type || null, prop.gain_type || null, prop.confidence]
               );
-              totalExtracted++;
+              
+              if (insertResult.rows.length > 0) {
+                savedCount++;
+                console.log(`[EXTRACTION] Saved proposition: "${prop.extracted_text.substring(0, 80)}..." (category: ${prop.category})`);
+              }
             }
+            
+            totalExtracted += savedCount;
+            console.log(`[EXTRACTION] Saved ${savedCount} propositions from ${rawData.source_type}`);
+            
+            // Mark as processed after extraction
+            await pool.query(
+              'UPDATE raw_data SET status = $1 WHERE id = $2',
+              ['processed', rawData.id]
+            );
           } catch (error: any) {
-            console.error(`Error extracting propositions from ${rawData.source_url}:`, error.message);
+            console.error(`[EXTRACTION] Error extracting propositions from ${rawData.source_url}:`, error.message);
+            console.error(`[EXTRACTION] Error stack:`, error.stack);
           }
         }
 
-        console.log(`Total value propositions extracted: ${totalExtracted}`);
+        console.log(`[EXTRACTION] Total value propositions extracted and saved: ${totalExtracted}`);
 
         // Analyze reviews
         const reviewsResult = await pool.query('SELECT * FROM reviews WHERE company_id = $1', [companyId]);

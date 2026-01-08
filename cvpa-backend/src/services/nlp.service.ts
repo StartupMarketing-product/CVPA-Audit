@@ -80,13 +80,13 @@ export class NLPService {
    * Must contain action verbs or benefit words, and be meaningful
    */
   private isValidValueProposition(text: string): boolean {
-    if (!text || text.length < 30) {
+    if (!text || text.length < 20) { // Reduced from 30 to 20 characters
       return false;
     }
     
-    // Must contain action verbs or benefit indicators
-    const actionVerbs = /\b(help|enable|allow|solve|fix|save|improve|provide|deliver|offer|create|make|give|get|achieve|accomplish|eliminate|remove|reduce|increase|enhance|optimize)\b/i;
-    const benefitWords = /\b(better|faster|easier|cheaper|affordable|convenient|reliable|secure|simple|quick|fast|easy|value|benefit|advantage)\b/i;
+    // Must contain action verbs or benefit indicators (English + Russian)
+    const actionVerbs = /\b(help|enable|allow|solve|fix|save|improve|provide|deliver|offer|create|make|give|get|achieve|accomplish|eliminate|remove|reduce|increase|enhance|optimize|помогать|решать|улучшать|предоставлять|доставлять|создавать|делать|давать|получать|достигать|устранять|удалять|уменьшать|увеличивать|улучшать|оптимизировать)\b/i;
+    const benefitWords = /\b(better|faster|easier|cheaper|affordable|convenient|reliable|secure|simple|quick|fast|easy|value|benefit|advantage|лучше|быстрее|проще|дешевле|доступно|удобно|надежно|безопасно|просто|быстро|легко|ценность|преимущество)\b/i;
     
     if (!actionVerbs.test(text) && !benefitWords.test(text)) {
       return false;
