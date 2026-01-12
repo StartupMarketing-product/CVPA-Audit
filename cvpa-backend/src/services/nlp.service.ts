@@ -80,14 +80,21 @@ export class NLPService {
    * Must contain action verbs or benefit words, and be meaningful
    */
   private isValidValueProposition(text: string): boolean {
+    // #region agent log
+    const hasLength = text && text.length >= 20;
+    const actionVerbs = /\b(help|enable|allow|solve|fix|save|improve|provide|deliver|offer|create|make|give|get|achieve|accomplish|eliminate|remove|reduce|increase|enhance|optimize|помогать|решать|улучшать|предоставлять|доставлять|создавать|делать|давать|получать|достигать|устранять|удалять|уменьшать|увеличивать|улучшать|оптимизировать)\b/i;
+    const benefitWords = /\b(better|faster|easier|cheaper|affordable|convenient|reliable|secure|simple|quick|fast|easy|value|benefit|advantage|лучше|быстрее|проще|дешевле|доступно|удобно|надежно|безопасно|просто|быстро|легко|ценность|преимущество)\b/i;
+    const hasActionVerb = actionVerbs.test(text);
+    const hasBenefitWord = benefitWords.test(text);
+    const isMetadata = this.isCompanyMetadata(text);
+    const result = hasLength && (hasActionVerb || hasBenefitWord) && !isMetadata;
+    fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:52',message:'isValidValueProposition check',data:{text:text?.substring(0,150)||'',hasLength,hasActionVerb,hasBenefitWord,isMetadata,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (!text || text.length < 20) { // Reduced from 30 to 20 characters
       return false;
     }
     
     // Must contain action verbs or benefit indicators (English + Russian)
-    const actionVerbs = /\b(help|enable|allow|solve|fix|save|improve|provide|deliver|offer|create|make|give|get|achieve|accomplish|eliminate|remove|reduce|increase|enhance|optimize|помогать|решать|улучшать|предоставлять|доставлять|создавать|делать|давать|получать|достигать|устранять|удалять|уменьшать|увеличивать|улучшать|оптимизировать)\b/i;
-    const benefitWords = /\b(better|faster|easier|cheaper|affordable|convenient|reliable|secure|simple|quick|fast|easy|value|benefit|advantage|лучше|быстрее|проще|дешевле|доступно|удобно|надежно|безопасно|просто|быстро|легко|ценность|преимущество)\b/i;
-    
     if (!actionVerbs.test(text) && !benefitWords.test(text)) {
       return false;
     }
@@ -230,11 +237,17 @@ export class NLPService {
   }
 
   extractValuePropositions(text: string, sourceType: string, sourceUrl: string, companyId: string): ValueProposition[] {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:232',message:'extractValuePropositions called',data:{sourceType,sourceUrl,textLength:text?.length||0,textPreview:text?.substring(0,200)||''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     const propositions: ValueProposition[] = [];
     const textLower = text.toLowerCase();
 
     // Split into sentences and phrases
     const sentences = text.split(/[.!?\n]+/).map(s => s.trim()).filter(s => s.length > 10);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:237',message:'Sentences extracted',data:{sourceType,sentenceCount:sentences.length,sampleSentences:sentences.slice(0,3)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 
     // Pattern-based extraction for more specific promises
     const jobPatterns = [
@@ -323,8 +336,15 @@ export class NLPService {
           extracted = extracted.replace(/^(we|our solution|our product|our service)/i, '').trim();
           
           if (extracted.length > 20 && extracted.length < 200) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:325',message:'Pain pattern matched, extracted text',data:{sourceType,extracted,length:extracted.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             // Validate that this is a real value proposition, not metadata
-            if (!this.isValidValueProposition(extracted)) {
+            const isValid = this.isValidValueProposition(extracted);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:327',message:'isValidValueProposition result (pain)',data:{sourceType,extracted,isValid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            if (!isValid) {
               continue;
             }
             
@@ -384,8 +404,15 @@ export class NLPService {
           }
           
           if (extracted.length > 15 && extracted.length < 200) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:386',message:'Gain pattern matched, extracted text',data:{sourceType,extracted,length:extracted.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
             // Validate that this is a real value proposition, not metadata
-            if (!this.isValidValueProposition(extracted)) {
+            const isValid = this.isValidValueProposition(extracted);
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:388',message:'isValidValueProposition result (gain)',data:{sourceType,extracted,isValid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            if (!isValid) {
               continue;
             }
             
@@ -427,8 +454,15 @@ export class NLPService {
       );
       
       if (!alreadyExists && job.text.length > 20) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:429',message:'Fallback job extraction',data:{sourceType,jobText:job.text.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         // Validate that this is a real value proposition, not metadata
-        if (this.isValidValueProposition(job.text)) {
+        const isValid = this.isValidValueProposition(job.text);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:431',message:'isValidValueProposition result (fallback job)',data:{sourceType,jobText:job.text.substring(0,100),isValid},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        if (isValid) {
           propositions.push({
             id: '',
             company_id: companyId,
@@ -447,8 +481,11 @@ export class NLPService {
     // Deduplicate similar propositions
     const uniquePropositions = this.deduplicatePropositions(propositions);
     
-    return uniquePropositions.slice(0, 50); // Limit to top 50 most confident
-  }
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'nlp.service.ts:395',message:'extractValuePropositions completed',data:{sourceType,sourceUrl,totalPropositions:uniquePropositions.length,propositions:uniquePropositions.slice(0,5).map(p=>({category:p.category,text:p.extracted_text.substring(0,100)}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
+            return uniquePropositions.slice(0, 50); // Limit to top 50 most confident
+          }
 
   private deduplicatePropositions(propositions: ValueProposition[]): ValueProposition[] {
     const unique: ValueProposition[] = [];
