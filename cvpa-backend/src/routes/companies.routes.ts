@@ -101,6 +101,9 @@ router.post('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
 
     // Start data collection (async - in production, use a queue)
     (async () => {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:103',message:'Audit async function started',data:{auditId:audit.id,companyId,sources},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       try {
         // Collect website data
         if (sources.includes('website')) {
@@ -164,13 +167,26 @@ router.post('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
           await dataCollector.collectMediaArticles(companyId, companyName);
         }
 
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:165',message:'All collection phases completed, starting extraction',data:{auditId:audit.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+
         // Process raw data and extract value propositions
         // Note: processRawData() marks items as 'processed', but we also check 'pending' 
         // to catch items that were just scraped but not yet marked as processed
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:170',message:'Calling processRawData',data:{auditId:audit.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         await dataCollector.processRawData(companyId);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:171',message:'processRawData completed',data:{auditId:audit.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         
         // Get all raw data with content (ready to extract from - include both pending and processed)
         console.log(`[EXTRACTION] Querying for raw_data items to extract from...`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:173',message:'About to query raw_data',data:{auditId:audit.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         const rawDataResult = await pool.query(
           `SELECT * FROM raw_data 
            WHERE company_id = $1 
@@ -182,6 +198,9 @@ router.post('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
         );
 
         console.log(`[EXTRACTION] Found ${rawDataResult.rows.length} raw_data items with content`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:184',message:'Raw data query result',data:{auditId:audit.id,count:rawDataResult.rows.length,items:rawDataResult.rows.slice(0,3).map(r=>({source_type:r.source_type,content_length:r.content?.length||0,status:r.status}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         if (rawDataResult.rows.length > 0) {
           console.log(`[EXTRACTION] Sample items:`, rawDataResult.rows.slice(0, 3).map(r => ({
             source_type: r.source_type,
@@ -244,6 +263,9 @@ router.post('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
         }
 
         console.log(`[EXTRACTION] Total value propositions extracted and saved: ${totalExtracted}`);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:248',message:'Extraction phase completed',data:{auditId:audit.id,totalExtracted},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
 
         // Analyze reviews
         const reviewsResult = await pool.query('SELECT * FROM reviews WHERE company_id = $1', [companyId]);
@@ -276,16 +298,22 @@ router.post('/:id/audits', authenticateToken, async (req: AuthRequest, res) => {
         // Identify gaps
         await scoringService.identifyGaps(companyId, audit.id);
 
-        // Mark audit as complete
-        await pool.query(
-          'UPDATE audits SET status = $1, end_date = CURRENT_TIMESTAMP WHERE id = $2',
-          ['completed', audit.id]
-        );
-      } catch (error) {
-        console.error('Error in audit processing:', error);
-        await pool.query('UPDATE audits SET status = $1 WHERE id = $2', ['failed', audit.id]);
-      }
-    })();
+                // Mark audit as complete
+                await pool.query(
+                  'UPDATE audits SET status = $1, end_date = CURRENT_TIMESTAMP WHERE id = $2',
+                  ['completed', audit.id]
+                );
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:280',message:'Audit marked as completed',data:{auditId:audit.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                // #endregion
+              } catch (error) {
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'companies.routes.ts:283',message:'Error in audit processing',data:{auditId:audit.id,error:error instanceof Error?error.message:String(error),stack:error instanceof Error?error.stack:undefined},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+                console.error('Error in audit processing:', error);
+                await pool.query('UPDATE audits SET status = $1 WHERE id = $2', ['failed', audit.id]);
+              }
+            })();
 
     res.status(201).json({ audit, message: 'Audit started. Processing in background.' });
   } catch (error: any) {

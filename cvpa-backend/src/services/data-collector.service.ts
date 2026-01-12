@@ -971,6 +971,9 @@ export class DataCollectorService {
   }
 
   async processRawData(companyId: string): Promise<void> {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'data-collector.service.ts:973',message:'processRawData called',data:{companyId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     // Get all pending raw data (and retry failed items that might have content)
     const result = await pool.query(
       `SELECT * FROM raw_data 
@@ -983,6 +986,9 @@ export class DataCollectorService {
     );
 
     console.log(`Processing ${result.rows.length} raw data items for company ${companyId}`);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'data-collector.service.ts:985',message:'processRawData query result',data:{companyId,count:result.rows.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
 
     // Process each item (mark as processed even if extraction finds nothing)
     for (const row of result.rows) {
@@ -996,6 +1002,9 @@ export class DataCollectorService {
         console.error(`Error updating raw_data status for ${row.id}:`, error);
       }
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/e2061857-14d6-488f-80a1-3c55c5b7424d',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'data-collector.service.ts:999',message:'processRawData completed',data:{companyId,processed:result.rows.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
   }
 }
 
